@@ -1,0 +1,50 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "k-photo-455a9",
+          "appId": "1:1014602044921:android:1293fd927a04bb594e9928",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "k-photo-455a9",
+          "configurations": {
+            "android": "1:1014602044921:android:1293fd927a04bb594e9928",
+            "ios": "1:1014602044921:ios:ec3e88492d37267a4e9928",
+            "macos": "1:1014602044921:ios:ec3e88492d37267a4e9928",
+            "web": "1:1014602044921:web:7863633b808ca2d84e9928",
+            "windows": "1:1014602044921:web:4ea7fad393c477484e9928"
+          }
+        }
+      }
+    }
+  },
+  "hosting": {
+    "public": "build/web",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ],
+    "headers": [
+      {
+        "source": "/photocards/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "max-age=31536000"
+          }
+        ]
+      }
+    ]
+  }
+}

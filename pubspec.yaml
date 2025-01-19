@@ -1,0 +1,123 @@
+name: k_photo
+description: "A new Flutter project."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.5.3
+
+dependencies:
+  sensors_plus: ^3.0.0
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  shared_preferences: ^2.2.2  # Dependência para preferências locais
+  lottie: ^2.2.0  # Dependência para animações Lottie
+  sqflite: ^2.0.0+4  # Adicione esta linha (ou a versão mais recente disponível)
+  path: ^1.8.0
+  uuid: ^3.0.4  # Dependência para geração de UUID
+  vector_math: ^2.1.1  # Dependência para transformações 3D
+  image_picker: ^1.0.7  # Adicionado para seleção de imagens
+  badges: ^3.1.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.11.0  # Pacote para adicionar ícones
+
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assets/app_icon.png"  # Caminho para o ícone do app
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/lombadabinder2.png
+    - assets/capabinder2.png
+    - assets/capas/binder1.png
+    - assets/estante_infinita.png
+    - assets/binder_back.png
+    - assets/binder_background.png
+    - assets/photocard1.png
+    - assets/capas/capabinder1.png
+    - assets/capas/capabinder2.png
+    - assets/capas/capabinder3.png
+    - assets/capas/capabinder4.png
+    - assets/capas/lombadabinder1.png
+    - assets/capas/lombadabinder2.png
+    - assets/capas/lombadabinder3.png
+    - assets/capas/lombadabinder4.png
+    - assets/default_back.png
+    - assets/photocard2.png
+    - assets/photocard3.png  # Novo photocard
+    - assets/photocard4.png  # Novo photocard
+    #photocards
+    - assets/photocards/photocard1.png
+    - assets/photocards/photocard2.png
+    - assets/photocards/photocard3.png
+    - assets/photocards/photocard4.png
+    - assets/photocards/photocard5.png
+    - assets/photocards/photocard6.png
+    - assets/photocards/photocard7.png
+    - assets/photocards/photocard8.png
+    - assets/photocards/photocard9.png
+    - assets/photocards/photocard10.png
+    - assets/photocards/photocard11.png
+    - assets/photocards/photocard12.png
+    - assets/photocards/photocard13.png
+    - assets/photocards/photocard14.png
+    - assets/photocards/photocard15.png
+    - assets/photocards/photocard16.png
+    - assets/photocards/photocard17.png
+    - assets/photocards/photocard18.png
+    - assets/photocards/photocard19.png
+    - assets/photocards/photocard20.png
+    - assets/photocards/photocard21.png
+    - assets/photocards/photocard22.png
+    - assets/photocards/photocard23.png
+    - assets/photocards/photocard24.png
+    - assets/photocards/photocard25.png
+    - assets/photocards/photocard26.png
+    - assets/photocards/photocard27.png
+    - assets/photocards/photocard28.png
+    - assets/photocards/photocard29.png
+    - assets/photocards/photocard30.png
+    - assets/photocards/photocard31.png
+    - assets/photocards/photocard32.png
+    - assets/photocards/photocard33.png
+    - assets/photocards/photocard34.png
+    - assets/photocards/photocard35.png
+    - assets/photocards/photocard36.png
+    - assets/photocards/photocard37.png
+    - assets/photocards/photocard38.png
+    - assets/photocards/photocard39.png
+    - assets/photocards/photocard40.png
+    - assets/photocards/photocard41.png
+    - assets/photocards/photocard42.png
+    - assets/photocards/photocard43.png
+    - assets/photocards/photocard44.png
+    - assets/photocards/photocard45.png
+    - assets/photocards/photocard46.png
+    - assets/photocards/photocard47.png
+    - assets/photocards/photocard48.png
+    - assets/photocards/photocard49.png
+    - assets/photocards/photocard50.png
+    #fim
+    - assets/plastic_texture.png
+    - assets/app_icon.png  # Ícone do app
+    - assets/your_animation_file.json  # Arquivo Lottie (substitua pelo nome do arquivo)
+    - assets/default_profile.png
+    - assets/frame/frame_1.png
+    - assets/frame/frame_2.png
+    - assets/frame/frame_3.png
+    - assets/frame/frame_4.png
+    - assets/kcoin.png     # Adicione esta linha
+    - assets/starcoin.png
+
+    - assets/keychain/keychain1.png
+    - assets/keychain/keychain2.png
+    - assets/keychain/keychain3.png

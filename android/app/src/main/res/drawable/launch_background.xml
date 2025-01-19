@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Cor de fundo -->
+    <item android:drawable="@android:color/white" />
+
+    <!-- Para adicionar uma animação ou imagem -->
+    <!-- Se você quiser usar uma imagem, descomente e substitua pelo caminho correto -->
+    <!-- <item>
+        <bitmap
+            android:gravity="center"
+            android:src="@mipmap/launch_image" />
+    </item> -->
+</layer-list>

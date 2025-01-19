@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "1014602044921",
+    "project_id": "k-photo-455a9",
+    "storage_bucket": "k-photo-455a9.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1014602044921:android:1293fd927a04bb594e9928",
+        "android_client_info": {
+          "package_name": "com.kauanne.k_photo"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1014602044921-46udf7buu571i5t9g5bvkcrda176pa74.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.kauanne.k_photo",
+            "certificate_hash": "36d21ce40c3d98d3e7cae27beecf5193860e420d"
+          }
+        },
+        {
+          "client_id": "1014602044921-e0uf0mi7vi7rj6ao8mru9t8hnosdar1u.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAWkQHxZN0he4s0K1GIgZcedmlrAWEqG5c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1014602044921-e0uf0mi7vi7rj6ao8mru9t8hnosdar1u.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "1014602044921-ukq9e275ob3addn1f2nvut1vnv0qu8kc.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.kPhoto"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
