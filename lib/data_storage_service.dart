@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'dart:convert';
@@ -17,6 +19,21 @@ class DataStorageService {
   static const int MAX_SHARED_PILE_CARDS = 10;
   static bool _isExecuting = false;
   static Future<void>? _currentOperation;
+
+  // Instance stream controller for binder updates
+  final StreamController<bool> binderUpdateController = 
+      StreamController<bool>.broadcast();
+
+  // Method to trigger binder update
+  void notifyBinderUpdate() {
+    print('DataStorageService: Notifying binder update');
+    binderUpdateController.add(true);
+  }
+
+  // Ensure the controller is closed when no longer needed
+  void dispose() {
+    binderUpdateController.close();
+  }
 
   Future<T> _executeOperation<T>(Future<T> Function() operation) async {
     while (_isExecuting) {
@@ -87,7 +104,8 @@ class DataStorageService {
             keychain_asset TEXT,
             binder_name TEXT,
             created_at TEXT,
-            updated_at TEXT
+            updated_at TEXT,
+            is_open INTEGER DEFAULT 0
           )
         ''');
 
@@ -392,8 +410,15 @@ class DataStorageService {
       limit: 1,
     );
 
-    // Sempre gera um novo ID único para cada instância do photocard
-    return DateTime.now().millisecondsSinceEpoch.toString();
+    // Usa o ID existente ou cria um novo
+    final String instanceId;
+    if (existingCard.isNotEmpty) {
+      instanceId = existingCard.first['instance_id'] as String;
+    } else {
+      instanceId = DateTime.now().millisecondsSinceEpoch.toString();
+    }
+
+    return instanceId;
   }
 
   Future<bool> addToSharedPile(String imagePath) async {
@@ -582,16 +607,52 @@ class DataStorageService {
     }
   }
 
-  Future<void> addBinder(String id, String slots) async {
+  Future<String> _getNextBinderId() async {
     final db = await database;
-    await db.insert(
-      'binders',
-      {
-        'id': id,
-        'slots': slots,
-        'created_at': DateTime.now().toIso8601String(),
-      },
+    final result = await db.query(
+      'binders', 
+      orderBy: 'CAST(id AS INTEGER) DESC', 
+      limit: 1
     );
+
+    int nextId = 0;
+    if (result.isNotEmpty) {
+      nextId = int.parse(result.first['id'].toString()) + 1;
+    }
+
+    return nextId.toString();
+  }
+
+  Future<String> addBinder(String id, String slots) async {
+    // Gerar ID único se necessário
+    if (id == '[]') {
+      id = await _getNextBinderId();
+    }
+
+    final db = await database;
+    
+    // Verificar se o ID já existe antes de inserir
+    final existingBinder = await db.query(
+      'binders', 
+      where: 'id = ?', 
+      whereArgs: [id]
+    );
+
+    if (existingBinder.isNotEmpty) {
+      // Se já existir, gerar um novo ID
+      id = await _getNextBinderId();
+    }
+
+    await db.insert('binders', {
+      'id': id,
+      'slots': slots,
+      'created_at': DateTime.now().toIso8601String(),
+    });
+    
+    // Trigger binder update
+    notifyBinderUpdate();
+
+    return id;
   }
 
   Future<List<Map<String, dynamic>>> getAllBinders() async {
@@ -1252,5 +1313,67 @@ class DataStorageService {
     final sharedPileCount = Sqflite.firstIntValue(await db.rawQuery(
         "SELECT COUNT(*) FROM inventory WHERE location = 'shared_pile'"));
     return sharedPileCount! < MAX_SHARED_PILE_CARDS;
+  }
+
+  Future<bool> canAddMoreBinders() async {
+    final db = await database;
+    final binderCount = Sqflite.firstIntValue(
+      await db.rawQuery('SELECT COUNT(*) FROM binders')
+    ) ?? 0;
+
+    return binderCount < 15;
+  }
+
+  Future<void> updateBinderState(String binderId, bool isOpen) async {
+    final db = await database;
+    try {
+      await db.update(
+        'binders', 
+        {'is_open': isOpen ? 1 : 0}, 
+        where: 'id = ?', 
+        whereArgs: [binderId]
+      );
+      
+      // Notificar sobre a atualização do binder
+      notifyBinderUpdate();
+    } catch (e) {
+      print('Erro ao atualizar estado do binder: $e');
+      rethrow;
+    }
+  }
+
+  Future<int> getUserCoins() async {
+    final db = await database;
+    final result = await db.query('user_balance', limit: 1);
+    
+    if (result.isEmpty) {
+      // Se não existir configuração de usuário, cria com 0 coins
+      await db.insert('user_balance', {
+        'k_coins': 0
+      });
+      return 0;
+    }
+    
+    return result.first['k_coins'] as int? ?? 0;
+  }
+
+  Future<void> deductUserCoins(int amount) async {
+    final db = await database;
+    final currentCoins = await getUserCoins();
+    
+    if (currentCoins < amount) {
+      throw Exception('Saldo insuficiente');
+    }
+    
+    await db.update(
+      'user_balance', 
+      {'k_coins': currentCoins - amount},
+      where: '1=1'  // Update all rows
+    );
+  }
+
+  Future<int> getKCoins() async {
+    final balance = await getBalance();
+    return balance['k_coins'] ?? 300;
   }
 }

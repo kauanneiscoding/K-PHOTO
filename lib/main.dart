@@ -384,7 +384,9 @@ class _HomePageState extends State<HomePage> {
       ),
       body: Center(
         child: _selectedIndex == 1
-            ? EstantePage(dataStorageService: widget.dataStorageService)
+            ? EstantePage(
+                dataStorageService: widget.dataStorageService,
+              )
             : _selectedIndex == 3
                 ? StorePage(dataStorageService: widget.dataStorageService)
                 : _selectedIndex == 4

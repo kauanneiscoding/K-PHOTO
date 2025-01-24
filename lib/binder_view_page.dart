@@ -162,6 +162,40 @@ class _BinderViewPageState extends State<BinderViewPage>
     );
   }
 
+  void _navigateToEditBinder() async {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EditBinderPage(
+          currentCover: currentCover,
+          currentSpine: currentSpine,
+          currentKeychain: currentKeychain,
+          onCoversChanged: (cover, spine, keychain) async {
+            await widget.dataStorageService.updateBinderCovers(
+              widget.binderId,
+              cover,
+              spine,
+            );
+            await widget.dataStorageService.saveBinderKeychain(
+              widget.binderId,
+              keychain ?? '',
+            );
+            
+            // Notificar atualização do binder
+            widget.dataStorageService.notifyBinderUpdate();
+
+            setState(() {
+              currentCover = cover;
+              currentSpine = spine;
+              currentKeychain = keychain;
+            });
+            Navigator.pop(context);
+          },
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _controller.dispose();
@@ -217,6 +251,10 @@ class _BinderViewPageState extends State<BinderViewPage>
                         widget.binderId,
                         keychain ?? '',
                       );
+                      
+                      // Notificar atualização do binder
+                      widget.dataStorageService.notifyBinderUpdate();
+
                       setState(() {
                         currentCover = cover;
                         currentSpine = spine;

@@ -15,12 +15,40 @@ class BackpackPage extends StatefulWidget {
 
 class _BackpackPageState extends State<BackpackPage> {
   late Future<Map<String, int>> _backpackCardsFuture;
+  late Future<List<Map<String, dynamic>>> _bindersFuture;
 
   @override
   void initState() {
     super.initState();
     _backpackCardsFuture =
         widget.dataStorageService.getBackpackPhotocardsCount();
+    _bindersFuture = widget.dataStorageService.getAllBinders();
+    widget.dataStorageService.ensureInitialBinder();
+  }
+
+  Future<void> _addNewBinder() async {
+    final canAddBinder = await widget.dataStorageService.canAddMoreBinders();
+    if (!canAddBinder) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Limite máximo de 15 binders atingido'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final binders = await _bindersFuture;
+    final newBinderId = (binders.map((b) => int.parse(b['id'])).toList()..sort()).last + 1;
+
+    await widget.dataStorageService.addBinder(
+      newBinderId.toString(), 
+      '[]'  // Default empty slots
+    );
+
+    setState(() {
+      _bindersFuture = widget.dataStorageService.getAllBinders();
+    });
   }
 
   @override
@@ -33,6 +61,13 @@ class _BackpackPageState extends State<BackpackPage> {
         ),
         backgroundColor: Colors.white,
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.add, color: Colors.pink[300]),
+            onPressed: _addNewBinder,
+            tooltip: 'Adicionar novo binder',
+          ),
+        ],
       ),
       body: FutureBuilder<Map<String, int>>(
         future: _backpackCardsFuture,

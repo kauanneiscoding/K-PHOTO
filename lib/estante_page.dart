@@ -22,6 +22,7 @@ class _EstantePageState extends State<EstantePage> {
   static const double binderCoverWidth = fixedHeight * 0.65;
   bool showInventory = false;
   late List<Binder> _binders;
+  StreamSubscription? _binderUpdateSubscription;
 
   @override
   void initState() {
@@ -52,6 +53,37 @@ class _EstantePageState extends State<EstantePage> {
         keychainAsset: null,
       ),
     ];
+
+    // Reestabelecer listener de atualização de binders
+    _binderUpdateSubscription = widget.dataStorageService.binderUpdateController.stream.listen((_) {
+      _refreshBinders();
+    });
+  }
+
+  @override
+  void dispose() {
+    _binderUpdateSubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refreshBinders() async {
+    try {
+      final binders = await widget.dataStorageService.getAllBinders();
+      
+      if (mounted) {
+        setState(() {
+          _binders = binders.map((binderData) => Binder(
+            coverAsset: binderData['cover_asset'] ?? 'assets/capas/capabinder1.png',
+            spineAsset: binderData['spine_asset'] ?? 'assets/capas/lombadabinder1.png',
+            isOpen: false,
+            keychainAsset: binderData['keychain_asset'],
+            binderName: binderData['id'],
+          )).toList();
+        });
+      }
+    } catch (e) {
+      print('Erro ao atualizar binders: $e');
+    }
   }
 
   @override
@@ -60,6 +92,106 @@ class _EstantePageState extends State<EstantePage> {
       appBar: AppBar(
         title: Text('Minha Estante'),
         centerTitle: false,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.menu_book, color: Colors.pink[300]),
+            onPressed: () async {
+              final canAddBinder = await widget.dataStorageService.canAddMoreBinders();
+              if (!canAddBinder) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Limite máximo de 15 binders atingido'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+                return;
+              }
+
+              // Verificar saldo de K-COINS
+              final userCoins = await widget.dataStorageService.getUserCoins();
+              const binderCost = 1500;
+
+              if (userCoins < binderCost) {
+                await showDialog(
+                  context: context,
+                  builder: (BuildContext context) {
+                    return AlertDialog(
+                      title: Text('Saldo Insuficiente', style: TextStyle(color: Colors.red)),
+                      content: Text('Você precisa de $binderCost K-COINS para comprar um novo binder. Seu saldo atual é $userCoins K-COINS.'),
+                      actions: <Widget>[
+                        TextButton(
+                          child: Text('OK'),
+                          onPressed: () {
+                            Navigator.of(context).pop();
+                          },
+                        ),
+                      ],
+                    );
+                  },
+                );
+                return;
+              }
+
+              // Confirmar compra do binder
+              final confirmPurchase = await showDialog<bool>(
+                context: context,
+                builder: (BuildContext context) {
+                  return AlertDialog(
+                    title: Text('Comprar Binder', style: TextStyle(color: Colors.pink)),
+                    content: Text('Deseja comprar um novo binder por $binderCost K-COINS?'),
+                    actions: <Widget>[
+                      TextButton(
+                        child: Text('Cancelar'),
+                        onPressed: () {
+                          Navigator.of(context).pop(false);
+                        },
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.pink),
+                        child: Text('Comprar', style: TextStyle(color: Colors.white)),
+                        onPressed: () {
+                          Navigator.of(context).pop(true);
+                        },
+                      ),
+                    ],
+                  );
+                },
+              );
+
+              // Se usuário cancelar, sair
+              if (confirmPurchase != true) return;
+
+              // Deduzir K-COINS
+              await widget.dataStorageService.deductUserCoins(binderCost);
+
+              final binders = _binders;
+              final newBinderId = binders.isEmpty 
+                  ? '0' 
+                  : (binders.map((b) => int.parse(b.binderName ?? '0')).toList()..sort()).last + 1;
+
+              // Cycle through 4 predefined binder styles
+              final styleIndex = int.parse(newBinderId.toString()) % 4;
+              final coverAsset = 'assets/capas/capabinder${styleIndex + 1}.png';
+              final spineAsset = 'assets/capas/lombadabinder${styleIndex + 1}.png';
+
+              await widget.dataStorageService.addBinder(
+                newBinderId.toString(), 
+                '[]'  // Default empty slots
+              );
+
+              setState(() {
+                _binders.add(Binder(
+                  coverAsset: coverAsset,
+                  spineAsset: spineAsset,
+                  isOpen: false,
+                  keychainAsset: null,
+                  binderName: newBinderId.toString(),
+                ));
+              });
+            },
+            tooltip: 'Adicionar novo binder',
+          ),
+        ],
       ),
       body: GestureDetector(
         onTap: () {
@@ -77,10 +209,144 @@ class _EstantePageState extends State<EstantePage> {
             child: ShelfWidget(
               binders: _binders,
               dataStorageService: widget.dataStorageService,
+              onBinderUpdate: (updatedBinders) {
+                setState(() {
+                  _binders = updatedBinders;
+                });
+              },
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+class ShelfWidget extends StatefulWidget {
+  final List<Binder> binders;
+  final DataStorageService dataStorageService;
+  final Function(List<Binder>)? onBinderUpdate;
+
+  const ShelfWidget({
+    Key? key,
+    required this.binders,
+    required this.dataStorageService,
+    this.onBinderUpdate,
+  }) : super(key: key);
+
+  @override
+  _ShelfWidgetState createState() => _ShelfWidgetState();
+}
+
+class _ShelfWidgetState extends State<ShelfWidget> {
+  late List<Binder> _binders;
+
+  @override
+  void initState() {
+    super.initState();
+    _binders = widget.binders;
+    _loadBinderCovers();
+  }
+
+  Future<void> _loadBinderCovers() async {
+    for (int i = 0; i < _binders.length; i++) {
+      final covers = await widget.dataStorageService.getBinderCovers(i.toString());
+      if (covers != null && mounted) {
+        setState(() {
+          _binders[i] = Binder(
+            coverAsset: covers['cover']!,
+            spineAsset: covers['spine']!,
+            isOpen: _binders[i].isOpen,
+            keychainAsset: covers['keychain'],
+            binderName: covers['name'],
+          );
+        });
+
+        // Notificar o pai sobre a atualização
+        if (widget.onBinderUpdate != null) {
+          widget.onBinderUpdate!(_binders);
+        }
+      }
+    }
+  }
+
+  void _toggleBinder(int index) async {
+    // Verificar se o índice é válido
+    if (index < 0 || index >= _binders.length) {
+      print('Índice de binder inválido: $index');
+      return;
+    }
+
+    setState(() {
+      if (_binders[index].isOpen) {
+        // Se já estiver aberto, navegar para a página do binder
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => BinderViewPage(
+              binderId: index.toString(),
+              binderCover: _binders[index].coverAsset,
+              binderSpine: _binders[index].spineAsset,
+              binderIndex: index,
+              dataStorageService: widget.dataStorageService,
+            ),
+          ),
+        ).then((_) {
+          // Recarrega as capas quando voltar da edição
+          _loadBinderCovers();
+        });
+      } else {
+        // Fechar todos os outros binders e abrir o selecionado
+        for (int i = 0; i < _binders.length; i++) {
+          _binders[i].isOpen = i == index;
+        }
+      }
+    });
+
+    // Salvar o estado dos binders no banco de dados
+    try {
+      for (int i = 0; i < _binders.length; i++) {
+        await widget.dataStorageService.updateBinderState(
+          i.toString(), 
+          _binders[i].isOpen
+        );
+      }
+    } catch (e) {
+      print('Erro ao salvar estado dos binders: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.builder(
+      padding: EdgeInsets.only(left: 20.0),
+      clipBehavior: Clip.none,
+      scrollDirection: Axis.horizontal,
+      itemCount: _binders.length,
+      itemBuilder: (context, index) {
+        // Verificação de segurança para índices
+        if (index < 0 || index >= _binders.length) {
+          print('Índice de binder inválido no build: $index');
+          return SizedBox.shrink();
+        }
+
+        return GestureDetector(
+          onTap: () {
+            _toggleBinder(index);
+          },
+          behavior: HitTestBehavior.opaque,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 0.0),
+            child: AnimatedBinderWrapper(
+              isOpen: _binders[index].isOpen,
+              child: BinderWidget(
+                binder: _binders[index],
+                isOpen: _binders[index].isOpen,
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -260,103 +526,6 @@ class Binder {
     this.keychainAsset,
     this.binderName,
   });
-}
-
-class ShelfWidget extends StatefulWidget {
-  final List<Binder> binders;
-  final DataStorageService dataStorageService;
-
-  const ShelfWidget({
-    Key? key,
-    required this.binders,
-    required this.dataStorageService,
-  }) : super(key: key);
-
-  @override
-  _ShelfWidgetState createState() => _ShelfWidgetState();
-}
-
-class _ShelfWidgetState extends State<ShelfWidget> {
-  late List<Binder> _binders;
-
-  @override
-  void initState() {
-    super.initState();
-    _binders = widget.binders;
-    _loadBinderCovers();
-  }
-
-  Future<void> _loadBinderCovers() async {
-    for (int i = 0; i < _binders.length; i++) {
-      final covers =
-          await widget.dataStorageService.getBinderCovers(i.toString());
-      if (covers != null && mounted) {
-        setState(() {
-          _binders[i] = Binder(
-            coverAsset: covers['cover']!,
-            spineAsset: covers['spine']!,
-            isOpen: _binders[i].isOpen,
-            keychainAsset: covers['keychain'],
-            binderName: covers['name'],
-          );
-        });
-      }
-    }
-  }
-
-  void _toggleBinder(int index) {
-    setState(() {
-      if (_binders[index].isOpen) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => BinderViewPage(
-              binderId: index.toString(),
-              binderCover: _binders[index].coverAsset,
-              binderSpine: _binders[index].spineAsset,
-              binderIndex: index,
-              dataStorageService: widget.dataStorageService,
-            ),
-          ),
-        ).then((_) {
-          // Recarrega as capas quando voltar da edição
-          _loadBinderCovers();
-        });
-      } else {
-        for (int i = 0; i < _binders.length; i++) {
-          _binders[i].isOpen = i == index;
-        }
-      }
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView.builder(
-      padding: EdgeInsets.only(left: 20.0),
-      clipBehavior: Clip.none,
-      scrollDirection: Axis.horizontal,
-      itemCount: widget.binders.length,
-      itemBuilder: (context, index) {
-        return GestureDetector(
-          onTap: () {
-            _toggleBinder(index);
-          },
-          behavior: HitTestBehavior.opaque,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 0.0),
-            child: AnimatedBinderWrapper(
-              isOpen: _binders[index].isOpen,
-              child: BinderWidget(
-                binder: _binders[index],
-                isOpen: _binders[index].isOpen,
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
 }
 
 class AnimatedBinderWrapper extends StatelessWidget {
