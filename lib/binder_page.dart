@@ -113,9 +113,15 @@ class _BinderPageState extends State<BinderPage> with WidgetsBindingObserver {
       final sharedPile = await widget.dataStorageService.getSharedPile();
       print('Monte compartilhado carregado: ${sharedPile.length} cards');
 
+      // Converter List<Map<String, dynamic>> para List<Map<String, String>>
+      final convertedPile = sharedPile.map((card) => {
+        'imagePath': card['image_path'] as String,
+        'instanceId': card['instance_id'] as String,
+      }).toList();
+
       if (mounted) {
         setState(() {
-          cardDeck = sharedPile;
+          cardDeck = convertedPile;
         });
       }
     } catch (e) {
@@ -904,12 +910,19 @@ class _BinderPageState extends State<BinderPage> with WidgetsBindingObserver {
   Future<void> _refreshSharedPile() async {
     try {
       final updatedPile = await widget.dataStorageService.getSharedPile();
+      
+      // Converter List<Map<String, dynamic>> para List<Map<String, String>>
+      final convertedPile = updatedPile.map((card) => {
+        'imagePath': card['image_path'] as String,
+        'instanceId': card['instance_id'] as String,
+      }).toList();
+
       if (mounted) {
         setState(() {
-          cardDeck = updatedPile;
+          cardDeck = convertedPile;
         });
       }
-      print('Monte atualizado: ${updatedPile.length} cards');
+      print('Monte atualizado: ${convertedPile.length} cards');
     } catch (e) {
       print('Erro ao atualizar monte: $e');
     }

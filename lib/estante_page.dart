@@ -27,37 +27,49 @@ class _EstantePageState extends State<EstantePage> {
   @override
   void initState() {
     super.initState();
+    
+    // Primeiro, carregar binders do banco de dados
+    _refreshBinders();
+
+    // Depois, definir o binder manual com um nome específico
     _binders = [
       Binder(
         coverAsset: 'assets/capas/capabinder1.png',
         spineAsset: 'assets/capas/lombadabinder1.png',
         isOpen: false,
         keychainAsset: null,
-      ),
-      Binder(
-        coverAsset: 'assets/capas/capabinder2.png',
-        spineAsset: 'assets/capas/lombadabinder2.png',
-        isOpen: false,
-        keychainAsset: null,
-      ),
-      Binder(
-        coverAsset: 'assets/capas/capabinder3.png',
-        spineAsset: 'assets/capas/lombadabinder3.png',
-        isOpen: false,
-        keychainAsset: null,
-      ),
-      Binder(
-        coverAsset: 'assets/capas/capabinder4.png',
-        spineAsset: 'assets/capas/lombadabinder4.png',
-        isOpen: false,
-        keychainAsset: null,
+        binderName: 'Manual', // Nome específico para o binder manual
       ),
     ];
+
+    // Log all binders when the page is initialized
+    _logAllBinders();
 
     // Reestabelecer listener de atualização de binders
     _binderUpdateSubscription = widget.dataStorageService.binderUpdateController.stream.listen((_) {
       _refreshBinders();
     });
+  }
+
+  // New method to log all binders
+  void _logAllBinders() async {
+    try {
+      final binders = await widget.dataStorageService.getAllBinders();
+      
+      print('=== Binders Inventory ===');
+      print('Total Binders: ${binders.length}');
+      
+      for (var binder in binders) {
+        print('Binder ID: ${binder['id']}');
+        print('Cover Asset: ${binder['cover_asset'] ?? 'No cover'}');
+        print('Spine Asset: ${binder['spine_asset'] ?? 'No spine'}');
+        print('---');
+      }
+      
+      print('=== End of Binder Inventory ===');
+    } catch (e) {
+      print('Error logging binders: $e');
+    }
   }
 
   @override
@@ -68,26 +80,87 @@ class _EstantePageState extends State<EstantePage> {
 
   Future<void> _refreshBinders() async {
     try {
+      print('DEBUG: Iniciando _refreshBinders()');
+      
       final binders = await widget.dataStorageService.getAllBinders();
+      
+      print('DEBUG: Binders recuperados. Total: ${binders.length}');
+      print('DEBUG: Detalhes dos binders: $binders');
       
       if (mounted) {
         setState(() {
-          _binders = binders.map((binderData) => Binder(
-            coverAsset: binderData['cover_asset'] ?? 'assets/capas/capabinder1.png',
-            spineAsset: binderData['spine_asset'] ?? 'assets/capas/lombadabinder1.png',
-            isOpen: false,
-            keychainAsset: binderData['keychain_asset'],
-            binderName: binderData['id'],
-          )).toList();
+          // Converter binders do banco de dados
+          final loadedBinders = binders.map((binderData) {
+            final binderId = binderData['id'].toString();
+            final styleIndex = int.parse(binderId) % 4 + 1;
+            final defaultCoverAsset = 'assets/capas/capabinder$styleIndex.png';
+            final defaultSpineAsset = 'assets/capas/lombadabinder$styleIndex.png';
+
+            final binder = Binder(
+              coverAsset: binderData['cover_asset'] ?? defaultCoverAsset,
+              spineAsset: binderData['spine_asset'] ?? defaultSpineAsset,
+              isOpen: binderData['is_open'] == 1,
+              keychainAsset: binderData['keychain_asset'],
+              binderName: (binderData['binder_name'] ?? binderId).toString(),
+            );
+
+            print('DEBUG: Criando Binder:');
+            print('DEBUG: ID: $binderId');
+            print('DEBUG: Nome: ${binder.binderName}');
+            print('DEBUG: Capa: ${binder.coverAsset}');
+            print('DEBUG: Lombada: ${binder.spineAsset}');
+            
+            return binder;
+          }).toList();
+          
+          // Filtrar binders únicos, removendo duplicatas baseadas na capa
+          final uniqueLoadedBinders = loadedBinders.where((binder) => 
+            binder.coverAsset != 'assets/capas/capabinder1.png'
+          ).toList();
+          
+          // Adicionar o binder manual como primeiro e os binders únicos do banco depois
+          _binders = [
+            _binders.first, // Binder manual sempre primeiro
+            ...uniqueLoadedBinders // Adicionar binders únicos do banco
+          ];
+
+          print('DEBUG: Comprimento final da lista de binders: ${_binders.length}');
+          for (var binder in _binders) {
+            print('DEBUG: Binder na lista - Nome: ${binder.binderName}, Capa: ${binder.coverAsset}');
+          }
         });
+      } else {
+        print('DEBUG: Widget não está montado');
       }
     } catch (e) {
-      print('Erro ao atualizar binders: $e');
+      print('DEBUG: Erro ao atualizar binders: $e');
+      print('DEBUG: Pilha de erro: ${StackTrace.current}');
+    }
+  }
+
+  // New method to find a binder by its ID
+  Binder? findBinderById(String id) {
+    try {
+      return _binders.firstWhere((binder) => binder.binderName == id);
+    } catch (e) {
+      print('Binder with ID $id not found');
+      return null;
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    // Add a safety check to prevent empty or null list
+    if (_binders.isEmpty) {
+      print('Warning: No binders to display');
+      return Center(
+        child: Text(
+          'Nenhum binder encontrado',
+          style: TextStyle(fontSize: 18, color: Colors.grey),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: Text('Minha Estante'),
@@ -164,30 +237,22 @@ class _EstantePageState extends State<EstantePage> {
               // Deduzir K-COINS
               await widget.dataStorageService.deductUserCoins(binderCost);
 
-              final binders = _binders;
-              final newBinderId = binders.isEmpty 
-                  ? '0' 
-                  : (binders.map((b) => int.parse(b.binderName ?? '0')).toList()..sort()).last + 1;
+              // Adicionar novo binder e obter seu ID
+              final newBinderId = await widget.dataStorageService.addNewBinder();
+              print('Binder purchased with ID: $newBinderId');
 
-              // Cycle through 4 predefined binder styles
-              final styleIndex = int.parse(newBinderId.toString()) % 4;
-              final coverAsset = 'assets/capas/capabinder${styleIndex + 1}.png';
-              final spineAsset = 'assets/capas/lombadabinder${styleIndex + 1}.png';
+              // Explicitly refresh binders
+              await _refreshBinders();
 
-              await widget.dataStorageService.addBinder(
-                newBinderId.toString(), 
-                '[]'  // Default empty slots
-              );
+              // Additional verification and logging
+              final updatedBinders = await widget.dataStorageService.getAllBinders();
+              print('Binders after purchase:');
+              for (var binder in updatedBinders) {
+                print('Binder ID: ${binder['id']}, Cover Asset: ${binder['cover_asset']}');
+              }
 
-              setState(() {
-                _binders.add(Binder(
-                  coverAsset: coverAsset,
-                  spineAsset: spineAsset,
-                  isOpen: false,
-                  keychainAsset: null,
-                  binderName: newBinderId.toString(),
-                ));
-              });
+              // Notify the parent widget about the update
+              widget.dataStorageService.notifyBinderUpdate();
             },
             tooltip: 'Adicionar novo binder',
           ),
@@ -244,29 +309,79 @@ class _ShelfWidgetState extends State<ShelfWidget> {
   @override
   void initState() {
     super.initState();
-    _binders = widget.binders;
+    
+    // If no binders are passed, initialize with an empty list
+    _binders = widget.binders.isNotEmpty ? widget.binders : [];
+    
+    // Always try to load binder covers, even if binders are empty
     _loadBinderCovers();
   }
 
   Future<void> _loadBinderCovers() async {
-    for (int i = 0; i < _binders.length; i++) {
-      final covers = await widget.dataStorageService.getBinderCovers(i.toString());
-      if (covers != null && mounted) {
-        setState(() {
-          _binders[i] = Binder(
-            coverAsset: covers['cover']!,
-            spineAsset: covers['spine']!,
-            isOpen: _binders[i].isOpen,
-            keychainAsset: covers['keychain'],
-            binderName: covers['name'],
-          );
-        });
+    try {
+      // Se não houver binders, ou se houver menos que o esperado
+      if (_binders.isEmpty || _binders.length < 2) {
+        final binderMaps = await widget.dataStorageService.getAllBinders();
+        
+        // Converter mapas de binders para objetos Binder
+        final loadedBinders = binderMaps.map((binderData) {
+          final binderId = binderData['id'].toString();
+          final styleIndex = int.parse(binderId) % 4 + 1;
+          final defaultCoverAsset = 'assets/capas/capabinder$styleIndex.png';
+          final defaultSpineAsset = 'assets/capas/lombadabinder$styleIndex.png';
 
-        // Notificar o pai sobre a atualização
+          return Binder(
+            coverAsset: binderData['cover_asset'] ?? defaultCoverAsset,
+            spineAsset: binderData['spine_asset'] ?? defaultSpineAsset,
+            isOpen: false,
+            keychainAsset: binderData['keychain_asset'],
+            binderName: binderId,
+          );
+        }).toList();
+
+        // Filtrar binders que não estão na lista, considerando ID único
+        final newBinders = loadedBinders.where((loadedBinder) => 
+          !_binders.any((existingBinder) => 
+            existingBinder.binderName == loadedBinder.binderName
+          )
+        ).toList();
+
+        // Adicionar novos binders à lista existente
+        _binders.addAll(newBinders);
+
+        // Notificar parent sobre atualização de binders, se callback existir
         if (widget.onBinderUpdate != null) {
           widget.onBinderUpdate!(_binders);
         }
+
+        print('DEBUG: Binders carregados. Total: ${_binders.length}');
+        for (var binder in _binders) {
+          print('DEBUG: Binder - Nome: ${binder.binderName}, Capa: ${binder.coverAsset}');
+        }
       }
+
+      // Continuar com o carregamento de capas para binders existentes
+      for (int i = 0; i < _binders.length; i++) {
+        final covers = await widget.dataStorageService.getBinderCovers(i.toString());
+        if (covers != null && mounted) {
+          setState(() {
+            _binders[i] = Binder(
+              coverAsset: covers['cover']!,
+              spineAsset: covers['spine']!,
+              isOpen: _binders[i].isOpen,
+              keychainAsset: covers['keychain'],
+              binderName: covers['name'],
+            );
+          });
+
+          // Notificar o pai sobre a atualização
+          if (widget.onBinderUpdate != null) {
+            widget.onBinderUpdate!(_binders);
+          }
+        }
+      }
+    } catch (e) {
+      print('Erro ao carregar capas dos binders: $e');
     }
   }
 
@@ -318,34 +433,53 @@ class _ShelfWidgetState extends State<ShelfWidget> {
 
   @override
   Widget build(BuildContext context) {
+    // Add a safety check to prevent empty or null list
+    if (_binders.isEmpty) {
+      print('Warning: No binders to display');
+      return Center(
+        child: Text(
+          'Nenhum binder encontrado',
+          style: TextStyle(fontSize: 18, color: Colors.grey),
+        ),
+      );
+    }
+
     return ListView.builder(
       padding: EdgeInsets.only(left: 20.0),
       clipBehavior: Clip.none,
       scrollDirection: Axis.horizontal,
+      // Ensure itemCount matches the actual number of binders
       itemCount: _binders.length,
       itemBuilder: (context, index) {
-        // Verificação de segurança para índices
+        // Add additional safety checks
         if (index < 0 || index >= _binders.length) {
-          print('Índice de binder inválido no build: $index');
+          print('Invalid binder index: $index');
           return SizedBox.shrink();
         }
 
-        return GestureDetector(
-          onTap: () {
-            _toggleBinder(index);
-          },
-          behavior: HitTestBehavior.opaque,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 0.0),
-            child: AnimatedBinderWrapper(
-              isOpen: _binders[index].isOpen,
-              child: BinderWidget(
-                binder: _binders[index],
-                isOpen: _binders[index].isOpen,
+        try {
+          final binder = _binders[index];
+
+          return GestureDetector(
+            onTap: () {
+              _toggleBinder(index);
+            },
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 0.0),
+              child: AnimatedBinderWrapper(
+                isOpen: binder.isOpen,
+                child: BinderWidget(
+                  binder: binder,
+                  isOpen: binder.isOpen,
+                ),
               ),
             ),
-          ),
-        );
+          );
+        } catch (e) {
+          print('Error displaying binder at index $index: $e');
+          return SizedBox.shrink();
+        }
       },
     );
   }

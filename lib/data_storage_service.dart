@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'dart:convert';
+import 'dart:math';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class StoreCard {
@@ -68,6 +69,7 @@ class DataStorageService {
       path,
       version: dbVersion,
       onCreate: (db, version) async {
+        // Create all necessary tables
         await db.execute('''
           CREATE TABLE shared_pile(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -130,32 +132,15 @@ class DataStorageService {
           )
         ''');
 
+        // Create ONLY the first default binder
         await db.insert('binders', {
           'id': '0',
+          'slots': '[]',
           'cover_asset': 'assets/capas/capabinder1.png',
           'spine_asset': 'assets/capas/lombadabinder1.png',
+          'binder_name': '0',  // Explicitly set binder_name to its ID
           'created_at': DateTime.now().toIso8601String(),
-        });
-
-        await db.insert('binders', {
-          'id': '1',
-          'cover_asset': 'assets/capas/capabinder2.png',
-          'spine_asset': 'assets/capas/lombadabinder2.png',
-          'created_at': DateTime.now().toIso8601String(),
-        });
-
-        await db.insert('binders', {
-          'id': '2',
-          'cover_asset': 'assets/capas/capabinder3.png',
-          'spine_asset': 'assets/capas/lombadabinder3.png',
-          'created_at': DateTime.now().toIso8601String(),
-        });
-
-        await db.insert('binders', {
-          'id': '3',
-          'cover_asset': 'assets/capas/capabinder4.png',
-          'spine_asset': 'assets/capas/lombadabinder4.png',
-          'created_at': DateTime.now().toIso8601String(),
+          'is_open': 0,
         });
 
         // Cria a tabela user_balance
@@ -184,116 +169,20 @@ class DataStorageService {
         ''');
       },
       onUpgrade: (db, oldVersion, newVersion) async {
-        if (oldVersion < 7) {
-          await db.execute('ALTER TABLE binders ADD COLUMN cover_asset TEXT');
-          await db.execute('ALTER TABLE binders ADD COLUMN spine_asset TEXT');
-          await db.execute('ALTER TABLE binders ADD COLUMN updated_at TEXT');
-
-          await db.update(
-              'binders',
-              {
-                'cover_asset': 'assets/capas/capabinder1.png',
-                'spine_asset': 'assets/capas/lombadabinder1.png',
-              },
-              where: 'id = ?',
-              whereArgs: ['0']);
-
-          await db.update(
-              'binders',
-              {
-                'cover_asset': 'assets/capas/capabinder2.png',
-                'spine_asset': 'assets/capas/lombadabinder2.png',
-              },
-              where: 'id = ?',
-              whereArgs: ['1']);
-
-          await db.update(
-              'binders',
-              {
-                'cover_asset': 'assets/capas/capabinder3.png',
-                'spine_asset': 'assets/capas/lombadabinder3.png',
-              },
-              where: 'id = ?',
-              whereArgs: ['2']);
-
-          await db.update(
-              'binders',
-              {
-                'cover_asset': 'assets/capas/capabinder4.png',
-                'spine_asset': 'assets/capas/lombadabinder4.png',
-              },
-              where: 'id = ?',
-              whereArgs: ['3']);
-        }
-
-        if (oldVersion < 8) {
-          await db
-              .execute('ALTER TABLE binders ADD COLUMN keychain_asset TEXT');
-          print('Coluna keychain_asset adicionada à tabela binders');
-        }
-
-        if (oldVersion < 9) {
-          await db.execute('''
-            CREATE TABLE IF NOT EXISTS user_balance(
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              k_coins INTEGER NOT NULL DEFAULT 300,
-              star_coins INTEGER NOT NULL DEFAULT 0,
-              last_reward_time INTEGER NOT NULL DEFAULT 0
-            )
-          ''');
-
-          final count = Sqflite.firstIntValue(
-              await db.rawQuery('SELECT COUNT(*) FROM user_balance'));
-          if (count == 0) {
-            await db.insert('user_balance', {
-              'id': 1,
-              'k_coins': 300,
-              'star_coins': 0,
-              'last_reward_time': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-            });
-          }
-        }
-
-        if (oldVersion < 10) {
-          await db.execute('''
-            CREATE TABLE IF NOT EXISTS purchased_frames(
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              frame_path TEXT NOT NULL UNIQUE
-            )
-          ''');
-        }
+        // If needed, add migration logic here
+        // For now, we'll just ensure only one default binder exists
+        await db.delete('binders');
+        await db.insert('binders', {
+          'id': '0',
+          'slots': '[]',
+          'cover_asset': 'assets/capas/capabinder1.png',
+          'spine_asset': 'assets/capas/lombadabinder1.png',
+          'binder_name': '0',  // Explicitly set binder_name to its ID
+          'created_at': DateTime.now().toIso8601String(),
+          'is_open': 0,
+        });
       },
     );
-
-    // Verifica se a tabela user_balance existe
-    final tables = await _database!.query('sqlite_master',
-        where: 'type = ? AND name = ?', whereArgs: ['table', 'user_balance']);
-
-    if (tables.isEmpty) {
-      // Se a tabela não existe, cria ela
-      await _database!.execute('''
-        CREATE TABLE user_balance(
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          k_coins INTEGER NOT NULL DEFAULT 300,
-          star_coins INTEGER NOT NULL DEFAULT 0,
-          last_reward_time INTEGER NOT NULL DEFAULT 0
-        )
-      ''');
-
-      // Insere o registro inicial
-      await _database!.insert('user_balance', {
-        'id': 1,
-        'k_coins': 300,
-        'star_coins': 0,
-        'last_reward_time': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      });
-    }
-
-    // Inicializa o monte compartilhado apenas se o banco foi recém-criado
-    if (!dbExists) {
-      await initializeSharedPile();
-      print('Banco de dados criado e monte inicializado pela primeira vez');
-    }
   }
 
   Future<void> resetDatabase() async {
@@ -400,24 +289,53 @@ class DataStorageService {
 
   Future<String> generateUniqueId(String imagePath) async {
     final db = await database;
-
-    // Verifica se já existe um ID para este photocard
-    final existingCard = await db.query(
-      'inventory',
-      where: 'image_path = ?',
-      whereArgs: [imagePath],
-      orderBy: 'created_at ASC',
-      limit: 1,
-    );
-
-    // Usa o ID existente ou cria um novo
-    final String instanceId;
-    if (existingCard.isNotEmpty) {
-      instanceId = existingCard.first['instance_id'] as String;
-    } else {
-      instanceId = DateTime.now().millisecondsSinceEpoch.toString();
+    
+    // Gera um ID base usando timestamp e um número aleatório
+    String generateBaseId() {
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final random = Random().nextInt(1000); // Adiciona aleatoriedade
+      return '$timestamp$random';
     }
 
+    // Verifica se o ID já existe no banco de dados
+    Future<bool> isIdUnique(String id) async {
+      final results = await db.query(
+        'inventory',
+        where: 'instance_id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      return results.isEmpty;
+    }
+
+    // Gera um ID único
+    String uniqueId;
+    do {
+      uniqueId = generateBaseId();
+    } while (!await isIdUnique(uniqueId));
+
+    return uniqueId;
+  }
+
+  Future<String> addToInventory(String imagePath, String location,
+      {String? binderId, int? slotIndex}) async {
+    final db = await database;
+    
+    // Gerar um instance_id único
+    final instanceId = await generateUniqueId(imagePath);
+
+    final id = await db.insert(
+      'inventory',
+      {
+        'instance_id': instanceId,
+        'image_path': imagePath,
+        'location': location,
+        'binder_id': binderId,
+        'slot_index': slotIndex,
+        'created_at': DateTime.now().toIso8601String(),
+      },
+    );
+    
     return instanceId;
   }
 
@@ -427,33 +345,15 @@ class DataStorageService {
       final currentCount = Sqflite.firstIntValue(await db.rawQuery(
           "SELECT COUNT(*) FROM inventory WHERE location = 'shared_pile'"));
 
-      // Gera um ID único para esta instância do photocard
-      final instanceId = await generateUniqueId(imagePath);
+      const int MAX_SHARED_PILE_CARDS = 10; // Defina o limite máximo
 
       if (currentCount! < MAX_SHARED_PILE_CARDS) {
-        await db.insert(
-          'inventory',
-          {
-            'instance_id': instanceId,
-            'image_path': imagePath,
-            'location': 'shared_pile',
-            'created_at': DateTime.now().toIso8601String(),
-          },
-        );
-        print('Card adicionado ao monte: $imagePath (instanceId: $instanceId)');
+        await addToInventory(imagePath, 'shared_pile');
+        print('Card adicionado ao monte: $imagePath');
         return true;
       } else {
-        await db.insert(
-          'inventory',
-          {
-            'instance_id': instanceId,
-            'image_path': imagePath,
-            'location': 'backpack',
-            'created_at': DateTime.now().toIso8601String(),
-          },
-        );
-        print(
-            'Card adicionado à mochila: $imagePath (instanceId: $instanceId)');
+        await addToInventory(imagePath, 'backpack');
+        print('Card adicionado à mochila: $imagePath');
         return false;
       }
     } catch (e) {
@@ -462,62 +362,19 @@ class DataStorageService {
     }
   }
 
-  Future<List<Map<String, String>>> getSharedPile() async {
+  Future<List<Map<String, dynamic>>> getSharedPile() async {
     final db = await database;
-    try {
-      final results = await db.query(
-        'inventory',
-        where: "location = 'shared_pile'",
-        columns: ['instance_id', 'image_path'],
-      );
-      print('Monte compartilhado carregado: ${results.length} cards');
+    final results = await db.query(
+      'inventory',
+      where: "location = 'shared_pile'",
+      columns: ['instance_id', 'image_path'],
+    );
 
-      return results
-          .map((row) => {
-                'imagePath': row['image_path'] as String,
-                'instanceId': row['instance_id'] as String,
-              })
-          .toList();
-    } catch (e) {
-      print('Erro ao carregar monte compartilhado: $e');
-      return [];
-    }
-  }
-
-  Future<void> initializeSharedPile() async {
-    final db = await database;
-    try {
-      final existingCount = Sqflite.firstIntValue(
-          await db.rawQuery('SELECT COUNT(*) FROM inventory'));
-
-      if (existingCount! > 0) {
-        print('Cards já existem no inventário, pulando inicialização');
-        return;
-      }
-
-      print('Inventário inicializado vazio');
-    } catch (e) {
-      print('Erro ao inicializar monte compartilhado: $e');
-    }
-  }
-
-  Future<void> printDatabaseContent() async {
-    final db = await database;
-    print('\n=== Conteúdo do Banco de Dados ===');
-
-    final photocards = await db.query('photocards');
-    print('Photocards na tabela:');
-    for (var card in photocards) {
-      print(card);
+    if (results.isEmpty) {
+      print('Nenhum card encontrado no monte compartilhado');
     }
 
-    final sharedPile = await db.query('shared_pile');
-    print('\nMonte compartilhado:');
-    for (var card in sharedPile) {
-      print(card);
-    }
-
-    print('===================================\n');
+    return results;
   }
 
   Future<void> restoreFullState() async {
@@ -607,57 +464,145 @@ class DataStorageService {
     }
   }
 
-  Future<String> _getNextBinderId() async {
+  Future<String> generateUniqueBinderId() async {
     final db = await database;
     final result = await db.query(
       'binders', 
+      columns: ['id'], 
       orderBy: 'CAST(id AS INTEGER) DESC', 
       limit: 1
     );
 
-    int nextId = 0;
-    if (result.isNotEmpty) {
-      nextId = int.parse(result.first['id'].toString()) + 1;
-    }
-
-    return nextId.toString();
+    int lastId = result.isNotEmpty 
+      ? int.parse(result.first['id'].toString()) 
+      : -1;
+    
+    return (lastId + 1).toString();
   }
 
-  Future<String> addBinder(String id, String slots) async {
-    // Gerar ID único se necessário
-    if (id == '[]') {
-      id = await _getNextBinderId();
-    }
-
+  Future<void> addBinder(String binderId, String slots) async {
     final db = await database;
     
-    // Verificar se o ID já existe antes de inserir
-    final existingBinder = await db.query(
+    // Determine cover and spine assets based on the binder ID
+    final styleIndex = int.parse(binderId) % 4 + 1;
+    final coverAsset = 'assets/capas/capabinder$styleIndex.png';
+    final spineAsset = 'assets/capas/lombadabinder$styleIndex.png';
+
+    try {
+      // First, check if the binder already exists
+      final existingBinder = await db.query(
+        'binders', 
+        where: 'id = ?', 
+        whereArgs: [binderId]
+      );
+
+      if (existingBinder.isNotEmpty) {
+        // Update existing binder if cover or spine assets are missing
+        await db.update(
+          'binders', 
+          {
+            'slots': slots ?? '[]',
+            'cover_asset': coverAsset,
+            'spine_asset': spineAsset,
+            'binder_name': binderId,  // Explicitly set binder_name
+            'updated_at': DateTime.now().toIso8601String(),
+          },
+          where: 'id = ?',
+          whereArgs: [binderId]
+        );
+      } else {
+        // Insert new binder
+        await db.insert('binders', {
+          'id': binderId,
+          'slots': slots ?? '[]',
+          'cover_asset': coverAsset,
+          'spine_asset': spineAsset,
+          'binder_name': binderId,  // Explicitly set binder_name
+          'created_at': DateTime.now().toIso8601String(),
+          'is_open': 0,  // Ensure binder starts closed
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+
+      print('Binder processed. ID: $binderId, Cover: $coverAsset, Spine: $spineAsset');
+      notifyBinderUpdate();
+    } catch (e) {
+      print('Error processing binder: $e');
+      rethrow;
+    }
+  }
+
+  Future<String> addNewBinder() async {
+    final db = await database;
+    
+    // Generate a unique binder ID
+    final result = await db.query(
       'binders', 
-      where: 'id = ?', 
-      whereArgs: [id]
+      columns: ['id'], 
+      orderBy: 'CAST(id AS INTEGER) DESC', 
+      limit: 1
     );
 
-    if (existingBinder.isNotEmpty) {
-      // Se já existir, gerar um novo ID
-      id = await _getNextBinderId();
-    }
-
-    await db.insert('binders', {
-      'id': id,
-      'slots': slots,
-      'created_at': DateTime.now().toIso8601String(),
-    });
+    int lastId = result.isNotEmpty 
+      ? int.parse(result.first['id'].toString()) 
+      : -1;
     
-    // Trigger binder update
-    notifyBinderUpdate();
+    final newBinderId = (lastId + 1).toString();
 
-    return id;
-  }
+    // Determine cover and spine assets based on the binder ID
+    final styleIndex = int.parse(newBinderId) % 4 + 1;
+    final coverAsset = 'assets/capas/capabinder$styleIndex.png';
+    final spineAsset = 'assets/capas/lombadabinder$styleIndex.png';
 
-  Future<List<Map<String, dynamic>>> getAllBinders() async {
-    final db = await database;
-    return await db.query('binders');
+    try {
+      // Check if a binder with this ID already exists
+      final existingBinder = await db.query(
+        'binders', 
+        where: 'id = ?', 
+        whereArgs: [newBinderId]
+      );
+
+      if (existingBinder.isNotEmpty) {
+        print('Warning: Binder with ID $newBinderId already exists. Overwriting.');
+      }
+
+      // Insert new binder
+      final insertResult = await db.insert('binders', {
+        'id': newBinderId,
+        'slots': '[]',
+        'cover_asset': coverAsset,
+        'spine_asset': spineAsset,
+        'binder_name': newBinderId,  // Explicitly set binder_name
+        'created_at': DateTime.now().toIso8601String(),
+        'is_open': 0,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+
+      print('New Binder Added: ');
+      print('ID: $newBinderId');
+      print('Cover Asset: $coverAsset');
+      print('Spine Asset: $spineAsset');
+      print('Insert Result: $insertResult');
+
+      // Verify the binder was added
+      final verifyResult = await db.query(
+        'binders', 
+        where: 'id = ?', 
+        whereArgs: [newBinderId]
+      );
+      print('Verify Result: $verifyResult');
+
+      // Additional verification of all binders
+      final allBinders = await db.query('binders');
+      print('All Binders after addition:');
+      for (var binder in allBinders) {
+        print('Binder ID: ${binder['id']}, Cover Asset: ${binder['cover_asset']}');
+      }
+
+      notifyBinderUpdate();
+      return newBinderId;
+    } catch (e) {
+      print('Error adding new binder: $e');
+      rethrow;
+    }
   }
 
   Future<void> updateBinderSlots(
@@ -855,47 +800,6 @@ class DataStorageService {
     } catch (e) {
       print('Erro ao contar photocards disponíveis: $e');
       return {};
-    }
-  }
-
-  Future<String> addToInventory(String imagePath, String location,
-      {String? binderId, int? slotIndex}) async {
-    final db = await database;
-
-    // Verifica se já existe um ID para este photocard
-    final existingCard = await db.query(
-      'inventory',
-      where: 'image_path = ?',
-      whereArgs: [imagePath],
-      limit: 1,
-    );
-
-    // Usa o ID existente ou cria um novo
-    final String instanceId;
-    if (existingCard.isNotEmpty) {
-      instanceId = existingCard.first['instance_id'] as String;
-    } else {
-      instanceId = DateTime.now().millisecondsSinceEpoch.toString();
-    }
-
-    try {
-      await db.insert(
-        'inventory',
-        {
-          'instance_id': instanceId,
-          'image_path': imagePath,
-          'location': location,
-          'binder_id': binderId,
-          'slot_index': slotIndex,
-          'created_at': DateTime.now().toIso8601String(),
-        },
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
-
-      return instanceId;
-    } catch (e) {
-      print('Erro ao adicionar ao inventário: $e');
-      rethrow;
     }
   }
 
@@ -1375,5 +1279,49 @@ class DataStorageService {
   Future<int> getKCoins() async {
     final balance = await getBalance();
     return balance['k_coins'] ?? 300;
+  }
+
+  Future<List<Map<String, dynamic>>> getAllBinders() async {
+    final db = await database;
+    
+    // Retrieve all binders, ordered by ID
+    final binders = await db.query(
+      'binders', 
+      orderBy: 'CAST(id AS INTEGER) ASC'
+    );
+
+    print('getAllBinders - Total binders retrieved: ${binders.length}');
+    for (var binder in binders) {
+      print('Detailed Binder Information:');
+      print('ID: ${binder['id']}');
+      print('Binder Name: ${binder['binder_name']}');
+      print('Cover Asset: ${binder['cover_asset']}');
+      print('Spine Asset: ${binder['spine_asset']}');
+      print('Slots: ${binder['slots']}');
+      print('Created At: ${binder['created_at']}');
+      print('Updated At: ${binder['updated_at']}');
+      print('Is Open: ${binder['is_open']}');
+      print('Keychain Asset: ${binder['keychain_asset']}');
+      print('---');
+    }
+
+    return binders;
+  }
+
+  Future<void> initializeSharedPile() async {
+    final db = await database;
+    try {
+      final existingCount = Sqflite.firstIntValue(
+          await db.rawQuery('SELECT COUNT(*) FROM inventory WHERE location = "shared_pile"'));
+
+      if (existingCount! > 0) {
+        print('Cards já existem no monte compartilhado, pulando inicialização');
+        return;
+      }
+
+      print('Monte compartilhado inicializado vazio');
+    } catch (e) {
+      print('Erro ao inicializar monte compartilhado: $e');
+    }
   }
 }
