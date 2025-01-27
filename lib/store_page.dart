@@ -572,8 +572,8 @@ class _MysteryBoxDialogState extends State<MysteryBoxDialog> {
       List<String> addedToBackpack = [];
 
       for (int i = 0; i < 3; i++) {
-        int cardNumber = random.nextInt(50) + 1;
-        String cardPath = 'assets/photocards/photocard$cardNumber.png';
+        int cardNumber = random.nextInt(102) + 1;
+        String cardPath = _getPhotocardPath(cardNumber);
         newPhotocards.add(cardPath);
 
         bool addedToSharedPile =
@@ -606,6 +606,14 @@ class _MysteryBoxDialogState extends State<MysteryBoxDialog> {
           ),
         );
       }
+    }
+  }
+
+  String _getPhotocardPath(int cardNumber) {
+    if (cardNumber >= 1 && cardNumber <= 102) {
+      return 'assets/photocards/photocard$cardNumber.png';
+    } else {
+      throw ArgumentError('Invalid photocard number: $cardNumber');
     }
   }
 }

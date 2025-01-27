@@ -449,11 +449,11 @@ class DataStorageService {
     if (count == 0) {
       final storeCards = [
         StoreCard(
-          imagePath: 'assets/photocards/photocard1.png',
+          imagePath: _getPhotocardPath(1),
           price: 100,
         ),
         StoreCard(
-          imagePath: 'assets/photocards/photocard2.png',
+          imagePath: _getPhotocardPath(2),
           price: 150,
         ),
       ];
@@ -461,6 +461,14 @@ class DataStorageService {
       for (var card in storeCards) {
         await addStoreCard(card.imagePath, card.price);
       }
+    }
+  }
+
+  String _getPhotocardPath(int cardNumber) {
+    if (cardNumber >= 1 && cardNumber <= 102) {
+      return 'assets/photocards/photocard$cardNumber.png';
+    } else {
+      throw ArgumentError('Invalid photocard number: $cardNumber');
     }
   }
 
