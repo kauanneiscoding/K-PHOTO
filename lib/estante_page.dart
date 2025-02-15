@@ -21,26 +21,15 @@ class _EstantePageState extends State<EstantePage> {
   static const double binderSpineWidth = fixedHeight * 0.0957536;
   static const double binderCoverWidth = fixedHeight * 0.65;
   bool showInventory = false;
-  late List<Binder> _binders;
+  List<Binder> _binders = [];  // Inicializar como lista vazia
   StreamSubscription? _binderUpdateSubscription;
 
   @override
   void initState() {
     super.initState();
     
-    // Primeiro, carregar binders do banco de dados
+    // Carregar binders do banco de dados
     _refreshBinders();
-
-    // Depois, definir o binder manual com um nome específico
-    _binders = [
-      Binder(
-        coverAsset: 'assets/capas/capabinder1.png',
-        spineAsset: 'assets/capas/lombadabinder1.png',
-        isOpen: false,
-        keychainAsset: null,
-        binderName: 'Manual', // Nome específico para o binder manual
-      ),
-    ];
 
     // Log all binders when the page is initialized
     _logAllBinders();
@@ -96,41 +85,18 @@ class _EstantePageState extends State<EstantePage> {
             final defaultCoverAsset = 'assets/capas/capabinder$styleIndex.png';
             final defaultSpineAsset = 'assets/capas/lombadabinder$styleIndex.png';
 
-            final binder = Binder(
+            // Garantir que todos os binders comecem fechados
+            return Binder(
               coverAsset: binderData['cover_asset'] ?? defaultCoverAsset,
               spineAsset: binderData['spine_asset'] ?? defaultSpineAsset,
-              isOpen: binderData['is_open'] == 1,
+              isOpen: false, // Sempre começar fechado
               keychainAsset: binderData['keychain_asset'],
-              binderName: (binderData['binder_name'] ?? binderId).toString(),
+              binderName: binderId,
             );
-
-            print('DEBUG: Criando Binder:');
-            print('DEBUG: ID: $binderId');
-            print('DEBUG: Nome: ${binder.binderName}');
-            print('DEBUG: Capa: ${binder.coverAsset}');
-            print('DEBUG: Lombada: ${binder.spineAsset}');
-            
-            return binder;
           }).toList();
           
-          // Filtrar binders únicos, removendo duplicatas baseadas na capa
-          final uniqueLoadedBinders = loadedBinders.where((binder) => 
-            binder.coverAsset != 'assets/capas/capabinder1.png'
-          ).toList();
-          
-          // Adicionar o binder manual como primeiro e os binders únicos do banco depois
-          _binders = [
-            _binders.first, // Binder manual sempre primeiro
-            ...uniqueLoadedBinders // Adicionar binders únicos do banco
-          ];
-
-          print('DEBUG: Comprimento final da lista de binders: ${_binders.length}');
-          for (var binder in _binders) {
-            print('DEBUG: Binder na lista - Nome: ${binder.binderName}, Capa: ${binder.coverAsset}');
-          }
+          _binders = loadedBinders;
         });
-      } else {
-        print('DEBUG: Widget não está montado');
       }
     } catch (e) {
       print('DEBUG: Erro ao atualizar binders: $e');
@@ -335,7 +301,7 @@ class _ShelfWidgetState extends State<ShelfWidget> {
             spineAsset: binderData['spine_asset'] ?? defaultSpineAsset,
             isOpen: false,
             keychainAsset: binderData['keychain_asset'],
-            binderName: binderId,
+            binderName: binderId, // Agora é obrigatório
           );
         }).toList();
 
@@ -370,7 +336,7 @@ class _ShelfWidgetState extends State<ShelfWidget> {
               spineAsset: covers['spine']!,
               isOpen: _binders[i].isOpen,
               keychainAsset: covers['keychain'],
-              binderName: covers['name'],
+              binderName: covers['name'] ?? _binders[i].binderName, // Usar o nome atual se o novo for nulo
             );
           });
 
@@ -385,21 +351,14 @@ class _ShelfWidgetState extends State<ShelfWidget> {
     }
   }
 
-  void _toggleBinder(int index) async {
-    // Verificar se o índice é válido
-    if (index < 0 || index >= _binders.length) {
-      print('Índice de binder inválido: $index');
-      return;
-    }
-
+  Future<void> _toggleBinder(int index) async {
     setState(() {
       if (_binders[index].isOpen) {
-        // Se já estiver aberto, navegar para a página do binder
         Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => BinderViewPage(
-              binderId: index.toString(),
+              binderId: _binders[index].binderName,
               binderCover: _binders[index].coverAsset,
               binderSpine: _binders[index].spineAsset,
               binderIndex: index,
@@ -409,6 +368,10 @@ class _ShelfWidgetState extends State<ShelfWidget> {
         ).then((_) {
           // Recarrega as capas quando voltar da edição
           _loadBinderCovers();
+          // Fecha o binder com animação
+          setState(() {
+            _binders[index].isOpen = false;
+          });
         });
       } else {
         // Fechar todos os outros binders e abrir o selecionado
@@ -417,18 +380,6 @@ class _ShelfWidgetState extends State<ShelfWidget> {
         }
       }
     });
-
-    // Salvar o estado dos binders no banco de dados
-    try {
-      for (int i = 0; i < _binders.length; i++) {
-        await widget.dataStorageService.updateBinderState(
-          i.toString(), 
-          _binders[i].isOpen
-        );
-      }
-    } catch (e) {
-      print('Erro ao salvar estado dos binders: $e');
-    }
   }
 
   @override
@@ -533,7 +484,8 @@ class _BinderWidgetState extends State<BinderWidget>
       ),
     );
 
-    _updateAnimationState();
+    // Começar sempre mostrando a lombada
+    _controller.value = 0.0;
   }
 
   @override
@@ -646,22 +598,6 @@ class _BinderWidgetState extends State<BinderWidget>
   }
 }
 
-class Binder {
-  final String coverAsset;
-  final String spineAsset;
-  bool isOpen;
-  final String? keychainAsset;
-  final String? binderName;
-
-  Binder({
-    required this.coverAsset,
-    required this.spineAsset,
-    this.isOpen = false,
-    this.keychainAsset,
-    this.binderName,
-  });
-}
-
 class AnimatedBinderWrapper extends StatelessWidget {
   final Widget child;
   final bool isOpen;
@@ -682,4 +618,20 @@ class AnimatedBinderWrapper extends StatelessWidget {
       child: child,
     );
   }
+}
+
+class Binder {
+  final String coverAsset;
+  final String spineAsset;
+  bool isOpen;
+  final String? keychainAsset;
+  final String binderName; // Agora é obrigatório
+
+  Binder({
+    required this.coverAsset,
+    required this.spineAsset,
+    required this.binderName, // Agora é obrigatório
+    this.isOpen = false,
+    this.keychainAsset,
+  });
 }

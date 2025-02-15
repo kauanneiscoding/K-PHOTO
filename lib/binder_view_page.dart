@@ -54,6 +54,9 @@ class _BinderViewPageState extends State<BinderViewPage>
     );
     _animation = Tween<double>(begin: 0, end: 1).animate(_controller);
 
+    // Atualizar o estado do binder para aberto
+    widget.dataStorageService.updateBinderState(widget.binderId, true);
+
     _controller.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
         Navigator.pushReplacement(
@@ -198,6 +201,8 @@ class _BinderViewPageState extends State<BinderViewPage>
 
   @override
   void dispose() {
+    // Atualizar o estado do binder para fechado quando a página é fechada
+    widget.dataStorageService.updateBinderState(widget.binderId, false);
     _controller.dispose();
     super.dispose();
   }
