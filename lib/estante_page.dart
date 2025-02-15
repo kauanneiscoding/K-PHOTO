@@ -23,6 +23,7 @@ class _EstantePageState extends State<EstantePage> {
   bool showInventory = false;
   List<Binder> _binders = [];
   StreamSubscription? _binderUpdateSubscription;
+  bool _isLoading = true;
 
   @override
   void initState() {
@@ -63,6 +64,12 @@ class _EstantePageState extends State<EstantePage> {
   }
 
   Future<void> _refreshBinders() async {
+    if (!mounted) return;
+    
+    setState(() {
+      _isLoading = true;
+    });
+
     try {
       print('DEBUG: Iniciando _refreshBinders()');
       final binderMaps = await widget.dataStorageService.getAllBinders();
@@ -84,16 +91,21 @@ class _EstantePageState extends State<EstantePage> {
         );
       }).toList();
 
-      // Atualizar o estado
-      if (mounted) {
-        setState(() {
-          _binders = updatedBinders;
-        });
-      }
+      if (!mounted) return;
+
+      setState(() {
+        _binders = updatedBinders;
+        _isLoading = false;
+      });
 
       print('DEBUG: _refreshBinders() concluído com ${_binders.length} binders');
     } catch (e) {
       print('ERROR: Erro em _refreshBinders(): $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -109,6 +121,115 @@ class _EstantePageState extends State<EstantePage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text('Minha Estante'),
+          centerTitle: false,
+          actions: [
+            IconButton(
+              icon: Icon(Icons.menu_book, color: Colors.pink[300]),
+              onPressed: () async {
+                final canAddBinder = await widget.dataStorageService.canAddMoreBinders();
+                if (!canAddBinder) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Limite máximo de 15 binders atingido'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+
+                // Verificar saldo de K-COINS
+                final userCoins = await widget.dataStorageService.getUserCoins();
+                const binderCost = 1500;
+
+                if (userCoins < binderCost) {
+                  await showDialog(
+                    context: context,
+                    builder: (BuildContext context) {
+                      return AlertDialog(
+                        title: Text('Saldo Insuficiente', style: TextStyle(color: Colors.red)),
+                        content: Text('Você precisa de $binderCost K-COINS para comprar um novo binder. Seu saldo atual é $userCoins K-COINS.'),
+                        actions: <Widget>[
+                          TextButton(
+                            child: Text('OK'),
+                            onPressed: () {
+                              Navigator.of(context).pop();
+                            },
+                          ),
+                        ],
+                      );
+                    },
+                  );
+                  return;
+                }
+
+                // Confirmar compra do binder
+                final confirmPurchase = await showDialog<bool>(
+                  context: context,
+                  builder: (BuildContext context) {
+                    return AlertDialog(
+                      title: Text('Comprar Binder', style: TextStyle(color: Colors.pink)),
+                      content: Text('Deseja comprar um novo binder por $binderCost K-COINS?'),
+                      actions: <Widget>[
+                        TextButton(
+                          child: Text('Cancelar'),
+                          onPressed: () {
+                            Navigator.of(context).pop(false);
+                          },
+                        ),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.pink),
+                          child: Text('Comprar', style: TextStyle(color: Colors.white)),
+                          onPressed: () {
+                            Navigator.of(context).pop(true);
+                          },
+                        ),
+                      ],
+                    );
+                  },
+                );
+
+                // Se usuário cancelar, sair
+                if (confirmPurchase != true) return;
+
+                // Deduzir K-COINS
+                await widget.dataStorageService.deductUserCoins(binderCost);
+
+                // Adicionar novo binder e obter seu ID
+                final newBinderId = await widget.dataStorageService.addNewBinder();
+                print('Binder purchased with ID: $newBinderId');
+
+                // Notificar sobre a atualização do binder
+                widget.dataStorageService.notifyBinderUpdate();
+
+                // Atualizar a lista de binders
+                await _refreshBinders();
+
+                // Mostrar mensagem de sucesso
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Binder comprado com sucesso!'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              },
+              tooltip: 'Adicionar novo binder',
+            ),
+          ],
+        ),
+        body: Center(
+          child: CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(Colors.pink[300]!),
+          ),
+        ),
+      );
+    }
+
     // Add a safety check to prevent empty or null list
     if (_binders.isEmpty) {
       print('Warning: No binders to display');
