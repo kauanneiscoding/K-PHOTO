@@ -20,16 +20,14 @@ void main() async {
 
   final dataStorageService = DataStorageService();
 
-  if (isFirstInstall) {
-    // Limpa as preferências e banco de dados apenas na primeira instalação
-    await prefs.clear();
-    String dbPath =
-        path.join(await getDatabasesPath(), DataStorageService.dbName);
-    if (await databaseExists(dbPath)) {
-      await deleteDatabase(dbPath);
-    }
-    await prefs.setBool('first_install', false);
+  // Limpa as preferências e banco de dados
+  await prefs.clear();
+  String dbPath =
+      path.join(await getDatabasesPath(), DataStorageService.dbName);
+  if (await databaseExists(dbPath)) {
+    await deleteDatabase(dbPath);
   }
+  await prefs.setBool('first_install', false);
 
   // Inicializa o banco de dados
   await dataStorageService.initDatabase();
@@ -37,10 +35,7 @@ void main() async {
   // Inicializa o CurrencyService com o DataStorageService
   CurrencyService.initialize(dataStorageService);
 
-  if (isFirstInstall) {
-    // Inicializa com os valores padrão apenas na primeira instalação
-    await CurrencyService.initializeDefaultValues();
-  }
+  await CurrencyService.initializeDefaultValues();
 
   await dataStorageService.restoreFullState();
 
@@ -391,8 +386,10 @@ class _HomePageState extends State<HomePage> {
                     dataStorageService: widget.dataStorageService,
                   )
                 : _selectedIndex == 2
+                    ? const Text('Página em construção')
+                : _selectedIndex == 3
                     ? StorePage(dataStorageService: widget.dataStorageService)
-                    : _selectedIndex == 3
+                    : _selectedIndex == 4
                         ? ProfilePage(dataStorageService: widget.dataStorageService)
                         : const Text('Página em construção'),
       ),
@@ -405,6 +402,10 @@ class _HomePageState extends State<HomePage> {
           BottomNavigationBarItem(
             icon: Icon(Icons.library_books),
             label: 'Minha Estante',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.swap_horiz),
+            label: 'Trocas',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.store),

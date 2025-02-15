@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/post.dart';
+import '../models/comment.dart';
 import '../services/database.dart';
 
 class FeedPage extends StatefulWidget {
@@ -16,6 +17,8 @@ class _FeedPageState extends State<FeedPage> {
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
   final Set<int> _likedPosts = {};
   final Set<int> _repostedPosts = {};
+  Map<int, List<Comment>> _postComments = {};
+  Map<int, int> _commentCounts = {};
 
   @override
   void initState() {
@@ -188,6 +191,51 @@ class _FeedPageState extends State<FeedPage> {
     }
   }
 
+  Future<void> _carregarComentarios(int postId) async {
+    try {
+      final comments = await _dbHelper.getCommentsByPostId(postId);
+      final commentCount = await _dbHelper.getCommentCountByPostId(postId);
+      
+      setState(() {
+        _postComments[postId] = comments;
+        _commentCounts[postId] = commentCount;
+      });
+    } catch (e) {
+      print('Erro ao carregar comentários: $e');
+    }
+  }
+
+  Future<void> _deletarComentario(Comment comment, StateSetter? setModalState) async {
+    try {
+      await _dbHelper.deleteComment(comment.id!);
+      
+      // Remove the comment from the local list
+      if (_postComments.containsKey(comment.postId)) {
+        _postComments[comment.postId]!.removeWhere((c) => c.id == comment.id);
+      }
+      
+      // Update the UI if a modal state setter is provided
+      if (setModalState != null) {
+        setModalState(() {});
+      }
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Comentário excluído'),
+          backgroundColor: Colors.red[300],
+          duration: Duration(seconds: 1),
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erro ao excluir comentário'),
+          backgroundColor: Colors.red[300],
+        ),
+      );
+    }
+  }
+
   void _mostrarModalCriarPost() {
     final TextEditingController _postController = TextEditingController();
     String? _selectedImagePath;
@@ -319,6 +367,220 @@ class _FeedPageState extends State<FeedPage> {
         ),
       ),
     );
+  }
+
+  void _mostrarModalComentarios(Post post) {
+    final TextEditingController _comentarioController = TextEditingController();
+    
+    // Load comments when modal opens
+    _carregarComentarios(post.id!);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+            left: 16,
+            right: 16,
+            top: 16,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Comentários',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.pink[800],
+                ),
+              ),
+              SizedBox(height: 10),
+              
+              // Comments List
+              if (_postComments[post.id!] != null && _postComments[post.id!]!.isNotEmpty)
+                ListView.builder(
+                  shrinkWrap: true,
+                  physics: NeverScrollableScrollPhysics(),
+                  itemCount: _postComments[post.id!]!.length,
+                  itemBuilder: (context, index) {
+                    final comment = _postComments[post.id!]![index];
+                    return ListTile(
+                      title: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(comment.userName ?? 'Usuário Anônimo'),
+                                Text(comment.content),
+                              ],
+                            ),
+                          ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _formatCommentDate(comment.createdAt),
+                                style: TextStyle(color: Colors.grey, fontSize: 12),
+                              ),
+                              WillPopScope(
+                                onWillPop: () async {
+                                  FocusManager.instance.primaryFocus?.requestFocus();
+                                  return false;
+                                },
+                                child: PopupMenuButton<String>(
+                                  icon: Icon(Icons.more_vert, size: 16, color: Colors.grey),
+                                  padding: EdgeInsets.zero,
+                                  elevation: 2,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  onCanceled: () {
+                                    // Prevent automatic keyboard dismissal
+                                    FocusManager.instance.primaryFocus?.requestFocus();
+                                  },
+                                  onSelected: (value) {
+                                    if (value == 'delete') {
+                                      _deletarComentario(comment, setModalState);
+                                    }
+                                    // Prevent keyboard dismissal
+                                    FocusManager.instance.primaryFocus?.requestFocus();
+                                  },
+                                  itemBuilder: (BuildContext context) => [
+                                    PopupMenuItem<String>(
+                                      value: 'delete',
+                                      child: Text(
+                                        'Excluir', 
+                                        style: TextStyle(
+                                          color: Colors.red, 
+                                          fontSize: 12
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 0, vertical: 0),
+                    );
+                  },
+                )
+              else
+                Text(
+                  'Nenhum comentário ainda.',
+                  style: TextStyle(
+                    color: Colors.grey,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              
+              SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _comentarioController,
+                      decoration: InputDecoration(
+                        hintText: 'Adicione um comentário...',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
+                      ),
+                      maxLines: null,
+                    ),
+                  ),
+                  SizedBox(width: 10),
+                  IconButton(
+                    icon: Icon(Icons.send, color: Colors.pink[800]),
+                    onPressed: () async {
+                      String comentario = _comentarioController.text.trim();
+                      if (comentario.isNotEmpty) {
+                        // TODO: Replace with actual user authentication
+                        String currentUserId = await _getCurrentUserId();
+                        String currentUserName = await _getCurrentUserName();
+
+                        final newComment = Comment(
+                          postId: post.id!,
+                          userId: currentUserId,
+                          userName: currentUserName,
+                          content: comentario,
+                        );
+
+                        try {
+                          await _dbHelper.addComment(newComment);
+                          
+                          // Reload comments and update the UI
+                          await _carregarComentarios(post.id!);
+                          
+                          // Update the modal's state to show new comments
+                          setModalState(() {});
+                          
+                          _comentarioController.clear();
+                          
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Comentário enviado!'),
+                              backgroundColor: Colors.green[300],
+                              duration: Duration(seconds: 1),
+                            ),
+                          );
+                        } catch (e) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Erro ao enviar comentário'),
+                              backgroundColor: Colors.red[300],
+                            ),
+                          );
+                        }
+                      }
+                    },
+                  ),
+                ],
+              ),
+              SizedBox(height: 10),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Placeholder methods for user identification
+  Future<String> _getCurrentUserId() async {
+    // TODO: Implement actual user authentication
+    return 'current_user_id';
+  }
+
+  Future<String> _getCurrentUserName() async {
+    // TODO: Implement actual user authentication
+    return 'Nome do Usuário';
+  }
+
+  String _formatCommentDate(DateTime dateTime) {
+    final now = DateTime.now();
+    final difference = now.difference(dateTime);
+
+    if (difference.inMinutes < 1) return 'Agora';
+    if (difference.inHours < 1) return '${difference.inMinutes}m';
+    if (difference.inDays < 1) return '${difference.inHours}h';
+    if (difference.inDays < 30) return '${difference.inDays}d';
+    
+    return '${dateTime.day}/${dateTime.month}/${dateTime.year}';
   }
 
   @override
@@ -526,6 +788,14 @@ class _FeedPageState extends State<FeedPage> {
                               color: _likedPosts.contains(post.id) 
                                   ? Colors.pink 
                                   : Colors.pink[300]!,
+                            ),
+                            
+                            // Comment button
+                            _buildInteractionButton(
+                              icon: Icons.comment_outlined,
+                              count: _commentCounts[post.id] ?? 0,
+                              onPressed: () => _mostrarModalComentarios(post),
+                              color: Colors.green[300]!,
                             ),
                             
                             // Repost button

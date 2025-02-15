@@ -1,67 +1,88 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/post.dart';
+import '../models/comment.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
   static Database? _database;
+  static const String dbName = 'k_photo.db';
 
   DatabaseHelper._init();
 
   Future<Database> get database async {
     if (_database != null) return _database!;
-    _database = await _initDB('k_photo.db');
+    _database = await initDatabase();
     return _database!;
   }
 
-  Future<Database> _initDB(String filePath) async {
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, filePath);
+  Future<Database> initDatabase() async {
+    try {
+      final path = join(await getDatabasesPath(), dbName);
+      print('Database path: $path');
+      
+      print('Opening database');
+      return await openDatabase(
+        path,
+        version: 2,
+        onCreate: (db, version) async {
+          print('onCreate called');
+          // Create posts table
+          await db.execute('''
+            CREATE TABLE posts (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              autor TEXT,
+              conteudo TEXT,
+              midia TEXT,
+              curtidas INTEGER DEFAULT 0,
+              republicacoes INTEGER DEFAULT 0,
+              dataPublicacao TEXT
+            )
+          ''');
+          print('Posts table created');
 
-    return await openDatabase(
-      path,
-      version: 1,
-      onCreate: _onCreate,
-    );
-  }
+          // Create comments table 
+          await db.execute('''
+            CREATE TABLE comments (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              post_id INTEGER,
+              user_id TEXT,
+              user_name TEXT,
+              content TEXT,
+              created_at TEXT,
+              FOREIGN KEY (post_id) REFERENCES posts (id)
+            )
+          ''');
+          print('Comments table created');
 
-  Future<void> _onCreate(Database db, int version) async {
-    await db.execute('''
-      CREATE TABLE posts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        autor TEXT,
-        conteudo TEXT,
-        midia TEXT,
-        curtidas INTEGER DEFAULT 0,
-        republicacoes INTEGER DEFAULT 0,
-        dataPublicacao TEXT
-      )
-    ''');
+          // Create additional supporting tables
+          await db.execute('''
+            CREATE TABLE liked_posts (
+              post_id INTEGER PRIMARY KEY,
+              is_liked INTEGER DEFAULT 0
+            )
+          ''');
 
-    await db.execute('''
-      CREATE TABLE comentarios (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        postId INTEGER,
-        autor TEXT,
-        texto TEXT,
-        dataCriacao TEXT,
-        FOREIGN KEY (postId) REFERENCES posts (id)
-      )
-    ''');
-
-    await db.execute('''
-      CREATE TABLE liked_posts (
-        post_id INTEGER PRIMARY KEY,
-        is_liked INTEGER DEFAULT 0
-      )
-    ''');
-
-    await db.execute('''
-      CREATE TABLE reposted_posts (
-        post_id INTEGER PRIMARY KEY,
-        is_reposted INTEGER DEFAULT 0
-      )
-    ''');
+          await db.execute('''
+            CREATE TABLE reposted_posts (
+              post_id INTEGER PRIMARY KEY,
+              is_reposted INTEGER DEFAULT 0
+            )
+          ''');
+        },
+        // Add onUpgrade to handle schema changes without data loss
+        onUpgrade: (db, oldVersion, newVersion) async {
+          if (oldVersion < 2) {
+            // Perform any necessary schema migrations here
+            // For example, adding new columns or tables
+            print('Upgrading database from $oldVersion to $newVersion');
+          }
+        },
+      );
+    } catch (e) {
+      print('Error initializing database: $e');
+      rethrow;
+    }
   }
 
   // Posts
@@ -145,6 +166,78 @@ class DatabaseHelper {
       orderBy: 'dataCriacao ASC'
     );
     return List.generate(maps.length, (i) => Comentario.fromMap(maps[i]));
+  }
+
+  // Comentários (new)
+  Future<int> addComment(Comment comment) async {
+    try {
+      final db = await database;
+      print('Attempting to add comment: ${comment.toMap()}');
+      
+      // Verify comments table exists
+      final tables = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='comments';"
+      );
+      
+      if (tables.isEmpty) {
+        // Recreate the comments table if it doesn't exist
+        await db.execute('''
+          CREATE TABLE comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            post_id INTEGER NOT NULL,
+            user_id TEXT NOT NULL,
+            user_name TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (post_id) REFERENCES posts (id)
+          )
+        ''');
+        print('Comments table recreated dynamically');
+      }
+
+      // Ensure created_at is always set
+      final commentMap = comment.toMap();
+      commentMap['created_at'] = DateTime.now().toIso8601String();
+
+      return await db.insert('comments', commentMap);
+    } catch (e) {
+      print('Error adding comment: $e');
+      // Log the full error details
+      print('Comment data: ${comment.toMap()}');
+      rethrow;
+    }
+  }
+
+  Future<List<Comment>> getCommentsByPostId(int postId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'comments',
+      where: 'post_id = ?',
+      whereArgs: [postId],
+      orderBy: 'created_at DESC',
+    );
+    return List.generate(maps.length, (i) {
+      return Comment.fromMap(maps[i]);
+    });
+  }
+
+  Future<int> getCommentCountByPostId(int postId) async {
+    final db = await database;
+    return Sqflite.firstIntValue(await db.query(
+      'comments',
+      columns: ['COUNT(*)'],
+      where: 'post_id = ?',
+      whereArgs: [postId],
+    )) ?? 0;
+  }
+
+  Future<int> deleteComment(int commentId) async {
+    final db = await database;
+    return await db.delete(
+      'comments', 
+      where: 'id = ?', 
+      whereArgs: [commentId]
+    );
   }
 
   // Liked Posts
