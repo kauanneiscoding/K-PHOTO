@@ -10,6 +10,7 @@ import 'store_page.dart'; // Importar a StorePage
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
+import 'pages/feed_page.dart'; // Import the FeedPage
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -383,15 +384,17 @@ class _HomePageState extends State<HomePage> {
         ),
       ),
       body: Center(
-        child: _selectedIndex == 1
-            ? EstantePage(
-                dataStorageService: widget.dataStorageService,
-              )
-            : _selectedIndex == 3
-                ? StorePage(dataStorageService: widget.dataStorageService)
-                : _selectedIndex == 4
-                    ? ProfilePage(dataStorageService: widget.dataStorageService)
-                    : const Text('Página em construção'),
+        child: _selectedIndex == 0
+            ? const FeedPage()
+            : _selectedIndex == 1
+                ? EstantePage(
+                    dataStorageService: widget.dataStorageService,
+                  )
+                : _selectedIndex == 2
+                    ? StorePage(dataStorageService: widget.dataStorageService)
+                    : _selectedIndex == 3
+                        ? ProfilePage(dataStorageService: widget.dataStorageService)
+                        : const Text('Página em construção'),
       ),
       bottomNavigationBar: BottomNavigationBar(
         items: const <BottomNavigationBarItem>[
@@ -402,10 +405,6 @@ class _HomePageState extends State<HomePage> {
           BottomNavigationBarItem(
             icon: Icon(Icons.library_books),
             label: 'Minha Estante',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.swap_horiz),
-            label: 'Trocas',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.store),

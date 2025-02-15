@@ -34,6 +34,10 @@ flutter_icons:
 
 flutter:
   uses-material-design: true
+  fonts:
+    - family: Nunito
+      fonts:
+        - asset: assets/fonts/Nunito-Regular.ttf
 
   assets:
     - assets/lombadabinder2.png
