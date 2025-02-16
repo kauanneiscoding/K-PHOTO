@@ -15,27 +15,24 @@ import 'pages/feed_page.dart'; // Import the FeedPage
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  final prefs = await SharedPreferences.getInstance();
-  final bool isFirstInstall = prefs.getBool('first_install') ?? true;
-
   final dataStorageService = DataStorageService();
 
-  // Limpa as preferências e banco de dados
-  await prefs.clear();
-  String dbPath =
-      path.join(await getDatabasesPath(), DataStorageService.dbName);
-  if (await databaseExists(dbPath)) {
-    await deleteDatabase(dbPath);
+  // Check for first-time installation
+  final prefs = await SharedPreferences.getInstance();
+  bool isFirstInstall = prefs.getBool('first_install') ?? true;
+
+  if (isFirstInstall) {
+    // Perform first-time setup
+    await dataStorageService.initializeSharedPile();
+    await CurrencyService.initializeDefaultValues();
+    await prefs.setBool('first_install', false);
   }
-  await prefs.setBool('first_install', false);
 
   // Inicializa o banco de dados
   await dataStorageService.initDatabase();
 
   // Inicializa o CurrencyService com o DataStorageService
   CurrencyService.initialize(dataStorageService);
-
-  await CurrencyService.initializeDefaultValues();
 
   await dataStorageService.restoreFullState();
 
