@@ -92,24 +92,51 @@ class SupabaseService {
     required String password,
   }) async {
     try {
+      print('🔐 Iniciando autenticação');
+      print('📧 Email: $email');
+      
       // Realizar login
       final response = await _client.auth.signInWithPassword(
         email: email,
         password: password,
       );
 
-      print('Login realizado com sucesso');
+      // Detalhes de autenticação
+      print('🎉 Login realizado com sucesso');
+      print('👤 Detalhes do usuário:');
+      print('   ID: ${response.user?.id}');
+      print('   Email: ${response.user?.email}');
+      print('   Criado em: ${response.user?.createdAt}');
+      
+      // Verificar sessão atual
+      final session = _client.auth.currentSession;
+      if (session != null) {
+        print('🔑 Detalhes da sessão:');
+        print('   Token de acesso: ${session.accessToken.substring(0, 10)}...');
+        print('   Expira em: ${session.expiresAt}');
+      }
+
       await afterSuccessfulLogin(response);
 
       return response;
     } catch (e) {
-      print('Erro no login: $e');
+      print('❌ Erro de autenticação');
+      print('📝 Detalhes do erro: $e');
+      
+      // Tratamento específico de erros de autenticação
+      if (e is AuthException) {
+        print('🚨 Tipo de erro de autenticação: ${e.message}');
+        print('🔍 Código do erro: ${e.statusCode}');
+      }
+      
       rethrow;
     }
   }
 
   Future<AuthResponse> signInWithGoogle() async {
     try {
+      print('🌐 Iniciando login com Google');
+      
       final GoogleSignIn googleSignIn = GoogleSignIn(
         clientId: kIsWeb 
           ? '527176737870-4kgh5jf6hp6nhcqco6g638k1b0d7j1oo.apps.googleusercontent.com' 
@@ -135,10 +162,20 @@ class SupabaseService {
         idToken: googleAuth.idToken!,
       );
 
+      print('🎉 Login com Google iniciado');
+      print('🔗 URL de redirecionamento gerada');
+      
       await afterSuccessfulLogin(response);
       return response;
     } catch (e) {
-      debugPrint('Erro no login com Google: $e');
+      print('❌ Erro no login com Google');
+      print('📝 Detalhes do erro: $e');
+      
+      if (e is AuthException) {
+        print('🚨 Tipo de erro de autenticação: ${e.message}');
+        print('🔍 Código do erro: ${e.statusCode}');
+      }
+      
       rethrow;
     }
   }

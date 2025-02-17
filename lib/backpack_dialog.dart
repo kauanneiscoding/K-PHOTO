@@ -35,8 +35,8 @@ class _BackpackDialogState extends State<BackpackDialog> {
       print('Total Cards: ${cards.length}');
       for (var card in cards) {
         print('📸 Card Details:');
-        print('  Instance ID: ${card['instanceId']}');
-        print('  Image Path: ${card['imagePath']}');
+        print('  Instance ID: ${card['instance_id']}');
+        print('  Image Path: ${card['image_path']}');
       }
     }).catchError((error) {
       print('❌ Error loading backpack cards: $error');
@@ -139,13 +139,13 @@ class _BackpackDialogState extends State<BackpackDialog> {
 
                                     final card = cards[index];
                                     final count =
-                                        cardCounts[card['imagePath']]?.length ??
+                                        cardCounts[card['image_path']]?.length ??
                                             0;
 
                                     return Stack(
                                       children: [
                                         // Add null check for imagePath
-                                        if (card['imagePath'] != null) Draggable<Map<String, String>>(
+                                        if (card['image_path'] != null) Draggable<Map<String, String>>(
                                           data: {
                                             ...card,
                                             'fromLocation': 'backpack',
@@ -157,12 +157,12 @@ class _BackpackDialogState extends State<BackpackDialog> {
                                                   BorderRadius.circular(
                                                       borderRadius),
                                               child: Image.asset(
-                                                card['imagePath']!,
+                                                card['image_path']!,
                                                 width: cardWidth,
                                                 height: cardHeight,
                                                 fit: BoxFit.cover,
                                                 errorBuilder: (context, error, stackTrace) {
-                                                  print('Error loading image: ${card['imagePath']}');
+                                                  print('Error loading image: ${card['image_path']}');
                                                   return Container(
                                                     width: cardWidth,
                                                     height: cardHeight,
@@ -177,12 +177,12 @@ class _BackpackDialogState extends State<BackpackDialog> {
                                             borderRadius: BorderRadius.circular(
                                                 borderRadius),
                                             child: Image.asset(
-                                              card['imagePath']!,
+                                              card['image_path']!,
                                               width: cardWidth,
                                               height: cardHeight,
                                               fit: BoxFit.cover,
                                               errorBuilder: (context, error, stackTrace) {
-                                                print('Error loading image: ${card['imagePath']}');
+                                                print('Error loading image: ${card['image_path']}');
                                                 return Container(
                                                   width: cardWidth,
                                                   height: cardHeight,
@@ -273,7 +273,7 @@ class _BackpackDialogState extends State<BackpackDialog> {
                                   onAccept: (data) async {
                                     await widget.dataStorageService
                                         .moveCardBetweenBackpackAndPile(
-                                      data['instanceId']!,
+                                      data['instance_id']!,
                                       data['fromLocation']!,
                                     );
                                     setState(() {

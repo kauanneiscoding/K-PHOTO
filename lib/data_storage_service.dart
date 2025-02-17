@@ -39,7 +39,23 @@ class DataStorageService {
 
   // Método para definir o ID do usuário atual
   void setCurrentUser(String userId) {
+    print('🔐 Definindo usuário atual:');
+    print('🆔 User ID: $userId');
+    
+    // Validar o formato do userId
+    if (userId.isEmpty) {
+      print('❌ Erro: User ID está vazio');
+      throw Exception('User ID não pode ser vazio');
+    }
+
+    // Verificar se o userId parece ser um UUID válido
+    final uuidRegex = RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', caseSensitive: false);
+    if (!uuidRegex.hasMatch(userId)) {
+      print('⚠️ Aviso: User ID não parece ser um UUID válido');
+    }
+
     _currentUserId = userId;
+    print('✅ Usuário definido com sucesso');
   }
 
   // Método para obter o ID do usuário atual

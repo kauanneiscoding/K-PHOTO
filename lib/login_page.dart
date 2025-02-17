@@ -25,15 +25,26 @@ class _LoginPageState extends State<LoginPage> {
     final user = Supabase.instance.client.auth.currentUser;
     
     if (user != null) {
-      print('Navegando para HomePage com usuário:');
-      print('ID do usuário: ${user.id}');
-      print('Email do usuário: ${user.email}');
+      print('🔐 Navegando para HomePage com usuário autenticado:');
+      print('🆔 ID do usuário: ${user.id}');
+      print('📧 Email do usuário: ${user.email ?? "Sem email"}');
+      print('📅 Usuário criado em: ${user.createdAt}');
+
+      // Verificar sessão atual
+      final session = Supabase.instance.client.auth.currentSession;
+      if (session != null) {
+        print('🔑 Detalhes da sessão:');
+        print('   Token de acesso: ${session.accessToken.substring(0, 10)}...');
+        print('   Expira em: ${session.expiresAt}');
+      }
 
       // Definir usuário no serviço de armazenamento
       _dataStorageService.setCurrentUser(user.id);
 
       // Verificar se o usuário foi definido corretamente
       if (_dataStorageService.isUserDefined()) {
+        print('✅ Usuário definido com sucesso no DataStorageService');
+        
         // Navegar para HomePage
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
@@ -43,7 +54,7 @@ class _LoginPageState extends State<LoginPage> {
           )
         );
       } else {
-        print('Falha ao definir usuário');
+        print('❌ Falha ao definir usuário no DataStorageService');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Erro: Não foi possível definir o usuário'),
@@ -52,7 +63,7 @@ class _LoginPageState extends State<LoginPage> {
         );
       }
     } else {
-      print('Tentativa de navegação sem usuário definido');
+      print('❌ Tentativa de navegação sem usuário definido');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Erro: Usuário não autenticado'),
