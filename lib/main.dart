@@ -10,39 +10,100 @@ import 'store_page.dart'; // Importar a StorePage
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
-import 'pages/feed_page.dart'; // Import the FeedPage
+import 'package:k_photo/config/supabase_config.dart';
+import 'package:k_photo/services/supabase_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'login_page.dart';
+import 'package:k_photo/services/user_sync_service.dart';
+import 'package:k_photo/pages/feed_page.dart'; // Import the FeedPage
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  final dataStorageService = DataStorageService();
+  // Inicializar Supabase
+  await Supabase.initialize(
+    url: SupabaseConfig.supabaseUrl,
+    anonKey: SupabaseConfig.supabaseAnonKey,
+  );
 
-  // Check for first-time installation
+  final dataStorageService = DataStorageService(Supabase.instance.client);
   final prefs = await SharedPreferences.getInstance();
-  bool isFirstInstall = prefs.getBool('first_install') ?? true;
 
-  if (isFirstInstall) {
-    // Perform first-time setup
-    await dataStorageService.initializeSharedPile();
-    await CurrencyService.initializeDefaultValues();
-    await prefs.setBool('first_install', false);
+  // Criar serviço de sincronização
+  final userSyncService = UserSyncService(
+    Supabase.instance.client, 
+    dataStorageService
+  );
+
+  // Verificar se é o primeiro login
+  bool isFirstInstall = prefs.getBool('first_install') ?? true;
+  bool isLoggedIn = Supabase.instance.client.auth.currentUser != null;
+
+  print('Verificação de Login:'); // Log de depuração
+  print('Primeiro Install: $isFirstInstall'); // Log de depuração
+  print('Usuário Logado: $isLoggedIn'); // Log de depuração
+  
+  if (isLoggedIn) {
+    final user = Supabase.instance.client.auth.currentUser;
+    
+    if (user != null) {
+      print('Usuário logado detectado:');
+      print('ID do usuário: ${user.id}');
+      print('Email do usuário: ${user.email}');
+
+      // Definir usuário no serviço de armazenamento
+      dataStorageService.setCurrentUser(user.id);
+      
+      userSyncService.setCurrentUser(user.id);
+      
+      // Garantir que haja um binder inicial
+      try {
+        final binders = await dataStorageService.getAllBinders();
+        print('Binders existentes: ${binders.length}');
+        
+        // Só criar binder inicial se NÃO houver NENHUM binder
+        if (binders.isEmpty) {
+          print('Nenhum binder encontrado. Criando binder inicial.');
+          await dataStorageService.addNewBinder();
+        } else {
+          print('Binders já existem. Não será criado binder inicial.');
+        }
+      } catch (e) {
+        print('Erro ao verificar/criar binder inicial: $e');
+      }
+      
+      // Sincronizar em background
+      userSyncService.syncAllUserData();
+    } else {
+      print('Usuário logado é nulo, apesar de isLoggedIn ser true');
+    }
+  } else {
+    print('Nenhum usuário logado');
   }
 
   // Inicializa o banco de dados
   await dataStorageService.initDatabase();
 
-  // Inicializa o CurrencyService com o DataStorageService
+  // Inicializa o CurrencyService
   CurrencyService.initialize(dataStorageService);
 
   await dataStorageService.restoreFullState();
 
-  runApp(MyApp(dataStorageService));
+  runApp(MyApp(
+    initialRoute: isLoggedIn ? '/home' : '/login',
+    dataStorageService: dataStorageService,
+  ));
 }
 
 class MyApp extends StatelessWidget {
+  final String initialRoute;
   final DataStorageService dataStorageService;
 
-  const MyApp(this.dataStorageService, {super.key});
+  const MyApp({
+    super.key, 
+    required this.initialRoute, 
+    required this.dataStorageService
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -51,11 +112,14 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.pink,
       ),
-      home: SplashScreen(
-        dataStorageService:
-            dataStorageService, // Passando dataStorageService para a SplashScreen
-      ),
-      debugShowCheckedModeBanner: false, // Remove o banner de debug
+      initialRoute: initialRoute,
+      routes: {
+        '/login': (context) => const LoginPage(),
+        '/home': (context) => HomePage(
+          dataStorageService: dataStorageService,
+        ),
+      },
+      debugShowCheckedModeBanner: false,
     );
   }
 }
@@ -377,7 +441,7 @@ class _HomePageState extends State<HomePage> {
       ),
       body: Center(
         child: _selectedIndex == 0
-            ? const FeedPage()
+            ? FeedPage(dataStorageService: widget.dataStorageService)
             : _selectedIndex == 1
                 ? EstantePage(
                     dataStorageService: widget.dataStorageService,

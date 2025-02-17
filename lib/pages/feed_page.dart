@@ -4,9 +4,15 @@ import 'package:image_picker/image_picker.dart';
 import '../models/post.dart';
 import '../models/comment.dart';
 import '../services/database.dart';
+import '../data_storage_service.dart';
 
 class FeedPage extends StatefulWidget {
-  const FeedPage({super.key});
+  final DataStorageService dataStorageService;
+
+  const FeedPage({
+    super.key, 
+    required this.dataStorageService
+  });
 
   @override
   _FeedPageState createState() => _FeedPageState();
@@ -14,7 +20,7 @@ class FeedPage extends StatefulWidget {
 
 class _FeedPageState extends State<FeedPage> {
   final List<Post> _posts = [];
-  final DatabaseHelper _dbHelper = DatabaseHelper.instance;
+  late DatabaseHelper _dbHelper;
   final Set<int> _likedPosts = {};
   final Set<int> _repostedPosts = {};
   Map<int, List<Comment>> _postComments = {};
@@ -23,6 +29,7 @@ class _FeedPageState extends State<FeedPage> {
   @override
   void initState() {
     super.initState();
+    _dbHelper = DatabaseHelper.instance;
     _carregarPosts();
     _carregarPostsCurtidos();
     _carregarPostsRepostados();

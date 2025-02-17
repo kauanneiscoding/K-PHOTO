@@ -20,6 +20,10 @@ dependencies:
   vector_math: ^2.1.1  # Dependência para transformações 3D
   image_picker: ^1.0.7  # Adicionado para seleção de imagens
   badges: ^3.1.2
+  google_sign_in: ^6.1.0
+  supabase_flutter: ^1.10.0
+  gotrue: ^1.12.6
+  postgrest: ^1.5.2
 
 dev_dependencies:
   flutter_test:
@@ -72,6 +76,7 @@ flutter:
     - assets/kcoin.png     # Adicione esta linha
     - assets/starcoin.png
 
+    - assets/google_logo.png
     - assets/keychain/keychain1.png
     - assets/keychain/keychain2.png
     - assets/keychain/keychain3.png

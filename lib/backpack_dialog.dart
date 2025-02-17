@@ -28,6 +28,31 @@ class _BackpackDialogState extends State<BackpackDialog> {
   void _refreshBackpack() {
     _backpackCardsFuture = widget.dataStorageService.getAvailablePhotocards();
     _cardCountsFuture = widget.dataStorageService.getBackpackPhotocardsCount();
+
+    // Log detailed information about backpack cards
+    _backpackCardsFuture.then((cards) {
+      print('🎒 Backpack Cards Loaded:');
+      print('Total Cards: ${cards.length}');
+      for (var card in cards) {
+        print('📸 Card Details:');
+        print('  Instance ID: ${card['instanceId']}');
+        print('  Image Path: ${card['imagePath']}');
+      }
+    }).catchError((error) {
+      print('❌ Error loading backpack cards: $error');
+    });
+
+    // Log detailed information about card counts
+    _cardCountsFuture.then((counts) {
+      print('🔢 Card Counts:');
+      counts.forEach((imagePath, instances) {
+        print('📊 Image: $imagePath');
+        print('   Count: ${instances.length}');
+        print('   Instance IDs: ${instances.join(", ")}');
+      });
+    }).catchError((error) {
+      print('❌ Error loading card counts: $error');
+    });
   }
 
   @override
@@ -119,7 +144,8 @@ class _BackpackDialogState extends State<BackpackDialog> {
 
                                     return Stack(
                                       children: [
-                                        Draggable<Map<String, String>>(
+                                        // Add null check for imagePath
+                                        if (card['imagePath'] != null) Draggable<Map<String, String>>(
                                           data: {
                                             ...card,
                                             'fromLocation': 'backpack',
@@ -135,6 +161,15 @@ class _BackpackDialogState extends State<BackpackDialog> {
                                                 width: cardWidth,
                                                 height: cardHeight,
                                                 fit: BoxFit.cover,
+                                                errorBuilder: (context, error, stackTrace) {
+                                                  print('Error loading image: ${card['imagePath']}');
+                                                  return Container(
+                                                    width: cardWidth,
+                                                    height: cardHeight,
+                                                    color: Colors.grey,
+                                                    child: Icon(Icons.error, color: Colors.red),
+                                                  );
+                                                },
                                               ),
                                             ),
                                           ),
@@ -146,8 +181,22 @@ class _BackpackDialogState extends State<BackpackDialog> {
                                               width: cardWidth,
                                               height: cardHeight,
                                               fit: BoxFit.cover,
+                                              errorBuilder: (context, error, stackTrace) {
+                                                print('Error loading image: ${card['imagePath']}');
+                                                return Container(
+                                                  width: cardWidth,
+                                                  height: cardHeight,
+                                                  color: Colors.grey,
+                                                  child: Icon(Icons.error, color: Colors.red),
+                                                );
+                                              },
                                             ),
                                           ),
+                                        ) else Container(
+                                          width: cardWidth,
+                                          height: cardHeight,
+                                          color: Colors.grey,
+                                          child: Icon(Icons.error, color: Colors.red),
                                         ),
                                         Positioned(
                                           bottom: 8,

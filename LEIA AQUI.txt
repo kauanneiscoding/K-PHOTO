@@ -1,0 +1,29 @@
+Bom dia Kauanne
+
+Essa versão está conectada com o supabase
+
+Os binders estão trabalhando de maneira independente
+
+DIGA A IA QUE NÃO QUER MUDAR OS MÉTODOS, porque eles estão funcionando bem
+Não queremos mudar no sqlite para o supabase
+Queremos que salve no sqlite e apenas usamos o supabase para cada sqlite salvar independente
+
+O sqlite salva as informações igual sempre dai manda pra o supabase e ele guarda o sqlite
+
+Nessa versão dá para logar e da para cadastrar usuários novos, mass
+- não começa com 300 k-coins
+- começa com um binder inicial <- ESTRAGADO
+- não salva as capas/chaveiros dos binders quando desloga
+- salva as posições dos photocards dentro dos binders <- ESTRAGADO
+- salva as molduras
+- MONTE ESTRAGADO
+- MOCHILA ESTRAGADA
+- moedas salvando certinho e ganhando certinho
+- FEED COMPARTILHADO :(((
+- Quando compra um binder novo e coloca photocard dentro se você deslogar vai sumir mas se
+você comprar de novo o binder os photocards vão estar salvos lá dentro <- ESTRAGADO
+- PÁGINA DE LOGIN FEIA
+- BOTÃO DE DESLOGAR FEIO
+
+Por favor tenha paciência consigo mesma, é dificil mas está muito legal
+Bjsss <3

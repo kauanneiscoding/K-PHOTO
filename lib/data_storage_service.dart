@@ -5,6 +5,7 @@ import 'package:path/path.dart';
 import 'dart:convert';
 import 'dart:math';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class StoreCard {
   final String imagePath;
@@ -14,12 +15,170 @@ class StoreCard {
 }
 
 class DataStorageService {
-  static Database? _database;
-  static const String dbName = 'photocards.db';
-  static const int dbVersion = 10;
+  static final DataStorageService _instance = DataStorageService._internal();
+  
+  factory DataStorageService([SupabaseClient? supabaseClient]) {
+    if (supabaseClient != null) {
+      _instance._supabaseClient = supabaseClient;
+    }
+    return _instance;
+  }
+
+  DataStorageService._internal();
+
+  SupabaseClient? _supabaseClient;
+
+  // Constantes
   static const int MAX_SHARED_PILE_CARDS = 10;
-  static bool _isExecuting = false;
-  static Future<void>? _currentOperation;
+  
+  // Variável de execução
+  bool _isExecuting = false;
+
+  Database? _database;
+  String? _currentUserId;
+
+  // Método para definir o ID do usuário atual
+  void setCurrentUser(String userId) {
+    _currentUserId = userId;
+  }
+
+  // Método para obter o ID do usuário atual
+  String? getCurrentUserId() {
+    return _currentUserId;
+  }
+
+  // Verificação segura de usuário
+  bool isUserDefined() {
+    return _currentUserId != null && _currentUserId!.isNotEmpty;
+  }
+
+  Future<Database> get database async {
+    if (_database != null) return _database!;
+    _database = await initDatabase();
+    return _database!;
+  }
+
+  Future<Database> initDatabase() async {
+    if (_database != null) {
+      return _database!;
+    }
+
+    String path = join(await getDatabasesPath(), 'photocards.db');
+    
+    // Uncomment to force database recreation during development
+    // await deleteDatabase(path);
+
+    try {
+      _database = await openDatabase(
+        path,
+        version: 15,  // Increment version to force migration
+        onCreate: (db, version) async {
+          print('🚀 Database onCreate called. Creating initial tables...');
+          
+          try {
+            // Criar tabela user_balance
+            await db.execute('''
+              CREATE TABLE user_balance (
+                user_id TEXT PRIMARY KEY,
+                k_coins INTEGER DEFAULT 0,
+                star_coins INTEGER DEFAULT 0,
+                last_reward_time INTEGER DEFAULT 0
+              )
+            ''');
+            print('✅ user_balance table created successfully');
+
+            // Criar tabela binders
+            await db.execute('''
+              CREATE TABLE binders(
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                slots TEXT,
+                cover_asset TEXT,
+                spine_asset TEXT,
+                keychain_asset TEXT,
+                binder_name TEXT,
+                created_at TEXT,
+                updated_at TEXT,
+                is_open INTEGER DEFAULT 0
+              )
+            ''');
+            print('✅ binders table created successfully');
+
+            // Criar outras tabelas necessárias
+            await db.execute('''
+              CREATE TABLE inventory(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                instance_id TEXT UNIQUE NOT NULL,
+                image_path TEXT NOT NULL,
+                location TEXT NOT NULL,
+                binder_id TEXT,
+                slot_index INTEGER,
+                page_number INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL
+              )
+            ''');
+            print('✅ inventory table created successfully');
+
+            await db.execute('''
+              CREATE TABLE photocards(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                photocard_id TEXT NOT NULL,
+                rarity TEXT,
+                created_at TEXT
+              )
+            ''');
+            print('✅ photocards table created successfully');
+
+            print('🎉 All initial tables created successfully');
+          } catch (e) {
+            print('❌ Error creating tables in onCreate: $e');
+            rethrow;
+          }
+        },
+        onUpgrade: (db, oldVersion, newVersion) async {
+          print('🔄 Database onUpgrade called. Old version: $oldVersion, New version: $newVersion');
+          
+          try {
+            // Ensure binders table exists
+            await db.execute('''
+              CREATE TABLE IF NOT EXISTS binders(
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                slots TEXT,
+                cover_asset TEXT,
+                spine_asset TEXT,
+                keychain_asset TEXT,
+                binder_name TEXT,
+                created_at TEXT,
+                updated_at TEXT,
+                is_open INTEGER DEFAULT 0
+              )
+            ''');
+            print('✅ binders table created/updated in onUpgrade');
+          } catch (e) {
+            print('❌ Error creating binders table in onUpgrade: $e');
+            rethrow;
+          }
+        },
+      );
+
+      // Verify table creation
+      try {
+        await _database!.query('binders', limit: 1);
+        print('✅ Successfully verified binders table exists');
+      } catch (e) {
+        print('❌ Failed to verify binders table: $e');
+        rethrow;
+      }
+
+      return _database!;
+    } catch (e) {
+      print('❌ Critical error in database initialization: $e');
+      rethrow;
+    }
+  }
 
   // Instance stream controller for binder updates
   final StreamController<bool> binderUpdateController = 
@@ -50,141 +209,6 @@ class DataStorageService {
     }
   }
 
-  Future<Database> get database async {
-    if (_database != null) return _database!;
-    await initDatabase();
-    return _database!;
-  }
-
-  Future<void> initDatabase() async {
-    if (_database != null) {
-      await _database!.close();
-      _database = null;
-    }
-
-    String path = join(await getDatabasesPath(), dbName);
-    bool dbExists = await databaseExists(path);
-
-    _database = await openDatabase(
-      path,
-      version: dbVersion,
-      onCreate: (db, version) async {
-        // Create all necessary tables
-        await db.execute('''
-          CREATE TABLE shared_pile(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            instance_id TEXT UNIQUE NOT NULL,
-            image_path TEXT NOT NULL
-          )
-        ''');
-
-        await db.execute('''
-          CREATE TABLE photocards(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            instance_id TEXT UNIQUE NOT NULL,
-            image_path TEXT NOT NULL,
-            binder_id TEXT,
-            slot_index INTEGER,
-            page_number INTEGER DEFAULT 0
-          )
-        ''');
-
-        await db.execute('''
-          CREATE TABLE store_cards(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            image_path TEXT NOT NULL,
-            price INTEGER NOT NULL
-          )
-        ''');
-
-        await db.execute('''
-          CREATE TABLE binders(
-            id TEXT PRIMARY KEY,
-            slots TEXT,
-            cover_asset TEXT,
-            spine_asset TEXT,
-            keychain_asset TEXT,
-            binder_name TEXT,
-            created_at TEXT,
-            updated_at TEXT,
-            is_open INTEGER DEFAULT 0
-          )
-        ''');
-
-        await db.execute('''
-          CREATE TABLE backpack(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            instance_id TEXT UNIQUE NOT NULL,
-            image_path TEXT NOT NULL
-          )
-        ''');
-
-        await db.execute('''
-          CREATE TABLE inventory(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            instance_id TEXT UNIQUE NOT NULL,
-            image_path TEXT NOT NULL,
-            location TEXT NOT NULL,
-            binder_id TEXT,
-            slot_index INTEGER,
-            page_number INTEGER DEFAULT 0,
-            created_at TEXT NOT NULL
-          )
-        ''');
-
-        // Create ONLY the first default binder
-        await db.insert('binders', {
-          'id': '0',
-          'slots': '[]',
-          'cover_asset': 'assets/capas/capabinder1.png',
-          'spine_asset': 'assets/capas/lombadabinder1.png',
-          'binder_name': '0',  // Explicitly set binder_name to its ID
-          'created_at': DateTime.now().toIso8601String(),
-          'is_open': 0,
-        });
-
-        // Cria a tabela user_balance
-        await db.execute('''
-          CREATE TABLE user_balance(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            k_coins INTEGER NOT NULL DEFAULT 300,
-            star_coins INTEGER NOT NULL DEFAULT 0,
-            last_reward_time INTEGER NOT NULL DEFAULT 0
-          )
-        ''');
-
-        // Insere o registro inicial apenas na criação
-        await db.insert('user_balance', {
-          'id': 1,
-          'k_coins': 300,
-          'star_coins': 0,
-          'last_reward_time': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-        });
-
-        await db.execute('''
-          CREATE TABLE IF NOT EXISTS purchased_frames(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            frame_path TEXT NOT NULL UNIQUE
-          )
-        ''');
-      },
-      onUpgrade: (db, oldVersion, newVersion) async {
-        // If needed, add migration logic here
-        // For now, we'll just ensure only one default binder exists
-        await db.delete('binders');
-        await db.insert('binders', {
-          'id': '0',
-          'slots': '[]',
-          'cover_asset': 'assets/capas/capabinder1.png',
-          'spine_asset': 'assets/capas/lombadabinder1.png',
-          'binder_name': '0',  // Explicitly set binder_name to its ID
-          'created_at': DateTime.now().toIso8601String(),
-          'is_open': 0,
-        });
-      },
-    );
-  }
-
   Future<void> resetDatabase() async {
     final db = await database;
     await db.delete('photocards');
@@ -202,8 +226,8 @@ class DataStorageService {
         await txn.delete(
           'inventory',
           where:
-              "location = 'binder' AND binder_id = ? AND slot_index = ? AND page_number = ?",
-          whereArgs: [binderId, slotIndex, pageNumber],
+              "location = 'binder' AND binder_id = ? AND slot_index = ? AND page_number = ? AND user_id = ?",
+          whereArgs: [binderId, slotIndex, pageNumber, _currentUserId],
         );
 
         if (imagePath != null) {
@@ -224,6 +248,7 @@ class DataStorageService {
               'slot_index': slotIndex,
               'page_number': pageNumber,
               'created_at': DateTime.now().toIso8601String(),
+              'user_id': _currentUserId
             },
             where: 'instance_id = ?',
             whereArgs: [instanceId],
@@ -245,8 +270,8 @@ class DataStorageService {
     try {
       final results = await db.query(
         'inventory',
-        where: "location = 'binder' AND binder_id = ?",
-        whereArgs: [binderId],
+        where: "location = 'binder' AND binder_id = ? AND user_id = ?",
+        whereArgs: [binderId, _currentUserId],
         orderBy: 'page_number ASC, slot_index ASC',
       );
 
@@ -268,8 +293,8 @@ class DataStorageService {
     try {
       final result = await db.query(
         'photocards',
-        where: 'instance_id = ?',
-        whereArgs: [instanceId],
+        where: 'instance_id = ? AND user_id = ?',
+        whereArgs: [instanceId, _currentUserId],
       );
       return result.isNotEmpty;
     } catch (e) {
@@ -281,9 +306,9 @@ class DataStorageService {
   Future<void> removeFromSharedPile(String imagePath) async {
     final db = await database;
     await db.delete(
-      'shared_pile',
-      where: 'image_path = ?',
-      whereArgs: [imagePath],
+      'inventory',
+      where: 'image_path = ? AND location = ?',
+      whereArgs: [imagePath, 'shared_pile'],
     );
   }
 
@@ -301,8 +326,8 @@ class DataStorageService {
     Future<bool> isIdUnique(String id) async {
       final results = await db.query(
         'inventory',
-        where: 'instance_id = ?',
-        whereArgs: [id],
+        where: 'instance_id = ? AND user_id = ?',
+        whereArgs: [id, _currentUserId],
         limit: 1,
       );
       return results.isEmpty;
@@ -333,67 +358,70 @@ class DataStorageService {
         'binder_id': binderId,
         'slot_index': slotIndex,
         'created_at': DateTime.now().toIso8601String(),
+        'user_id': _currentUserId
       },
     );
     
     return instanceId;
   }
 
-  Future<bool> addToSharedPile(String imagePath) async {
-    final db = await database;
-    try {
-      final currentCount = Sqflite.firstIntValue(await db.rawQuery(
-          "SELECT COUNT(*) FROM inventory WHERE location = 'shared_pile'"));
-
-      const int MAX_SHARED_PILE_CARDS = 10; // Defina o limite máximo
-
-      if (currentCount! < MAX_SHARED_PILE_CARDS) {
-        await addToInventory(imagePath, 'shared_pile');
-        print('Card adicionado ao monte: $imagePath');
-        return true;
-      } else {
-        await addToInventory(imagePath, 'backpack');
-        print('Card adicionado à mochila: $imagePath');
-        return false;
-      }
-    } catch (e) {
-      print('Erro ao adicionar card: $e');
-      return false;
-    }
-  }
-
   Future<List<Map<String, dynamic>>> getSharedPile() async {
     final db = await database;
-    final results = await db.query(
-      'inventory',
-      where: "location = 'shared_pile'",
-      columns: ['instance_id', 'image_path'],
+    return await db.query(
+      'inventory', 
+      where: 'user_id = ? AND location = ?', 
+      whereArgs: [_currentUserId, 'shared_pile']
     );
+  }
 
-    if (results.isEmpty) {
-      print('Nenhum card encontrado no monte compartilhado');
-    }
-
-    return results;
+  Future<List<Map<String, dynamic>>> getBackpackCards() async {
+    final db = await database;
+    return await db.query(
+      'inventory', 
+      where: 'user_id = ? AND location = ?', 
+      whereArgs: [_currentUserId, 'backpack']
+    );
   }
 
   Future<void> restoreFullState() async {
     try {
+      // Verificação segura de usuário
+      if (_currentUserId == null || _currentUserId!.isEmpty) {
+        print('Usuário não definido. Pulando restauração de estado.');
+        return;
+      }
+
       final db = await database;
+      final sharedPileCount = Sqflite.firstIntValue(
+        await db.rawQuery(
+          'SELECT COUNT(*) FROM inventory WHERE user_id = ? AND location = ?', 
+          [_currentUserId, 'shared_pile']
+        )
+      ) ?? 0;
 
-      final inventoryCount = Sqflite.firstIntValue(
-          await db.rawQuery('SELECT COUNT(*) FROM inventory'));
+      final backpackCount = Sqflite.firstIntValue(
+        await db.rawQuery(
+          'SELECT COUNT(*) FROM inventory WHERE user_id = ? AND location = ?', 
+          [_currentUserId, 'backpack']
+        )
+      ) ?? 0;
 
-      print('Contagem atual de items no inventário: $inventoryCount');
+      print('Contagem de items no monte compartilhado: $sharedPileCount');
+      print('Contagem de items na mochila: $backpackCount');
 
-      if (inventoryCount == 0) {
+      if (sharedPileCount == 0 && backpackCount == 0) {
         print('Inventário vazio, inicializando dados pela primeira vez...');
         await initializeSharedPile();
       } else {
         print('Dados existentes encontrados, mantendo estado atual');
       }
 
-      await printAllLocations();
+      // Adicionar verificação de nulidade antes de chamar printAllLocations
+      try {
+        await printAllLocations();
+      } catch (e) {
+        print('Erro ao imprimir localizações: $e');
+      }
     } catch (e) {
       print('Erro ao restaurar estado: $e');
     }
@@ -403,7 +431,7 @@ class DataStorageService {
     final db = await database;
     final id = await db.insert(
       'photocards',
-      {'image_path': imagePath},
+      {'image_path': imagePath, 'user_id': _currentUserId},
     );
     return id.toString();
   }
@@ -412,8 +440,8 @@ class DataStorageService {
     final db = await database;
     final results = await db.query(
       'photocards',
-      where: 'id = ?',
-      whereArgs: [id],
+      where: 'id = ? AND user_id = ?',
+      whereArgs: [id, _currentUserId],
       columns: ['image_path'],
     );
 
@@ -443,7 +471,7 @@ class DataStorageService {
   Future<void> initializeStore() async {
     final db = await database;
     final count = Sqflite.firstIntValue(
-      await db.rawQuery('SELECT COUNT(*) FROM store_cards'),
+      await db.rawQuery('SELECT COUNT(*) FROM store_cards')
     );
 
     if (count == 0) {
@@ -477,6 +505,8 @@ class DataStorageService {
     final result = await db.query(
       'binders', 
       columns: ['id'], 
+      where: 'user_id = ?',
+      whereArgs: [_currentUserId],
       orderBy: 'CAST(id AS INTEGER) DESC', 
       limit: 1
     );
@@ -500,8 +530,8 @@ class DataStorageService {
       // First, check if the binder already exists
       final existingBinder = await db.query(
         'binders', 
-        where: 'id = ?', 
-        whereArgs: [binderId]
+        where: 'id = ? AND user_id = ?', 
+        whereArgs: [binderId, _currentUserId]
       );
 
       if (existingBinder.isNotEmpty) {
@@ -515,13 +545,14 @@ class DataStorageService {
             'binder_name': binderId,  // Explicitly set binder_name
             'updated_at': DateTime.now().toIso8601String(),
           },
-          where: 'id = ?',
-          whereArgs: [binderId]
+          where: 'id = ? AND user_id = ?',
+          whereArgs: [binderId, _currentUserId]
         );
       } else {
         // Insert new binder
         await db.insert('binders', {
           'id': binderId,
+          'user_id': _currentUserId,  // Adicionar ID do usuário
           'slots': slots ?? '[]',
           'cover_asset': coverAsset,
           'spine_asset': spineAsset,
@@ -542,10 +573,18 @@ class DataStorageService {
   Future<String> addNewBinder() async {
     final db = await database;
     
-    // Generate a unique binder ID
+    if (_currentUserId == null) {
+      throw Exception('Nenhum usuário definido');
+    }
+    
+    print('🔍 Criando novo binder para usuário: $_currentUserId');
+    
+    // Gerar um ID único para o binder
     final result = await db.query(
       'binders', 
       columns: ['id'], 
+      where: 'user_id = ?',
+      whereArgs: [_currentUserId],
       orderBy: 'CAST(id AS INTEGER) DESC', 
       limit: 1
     );
@@ -556,59 +595,45 @@ class DataStorageService {
     
     final newBinderId = (lastId + 1).toString();
 
-    // Determine cover and spine assets based on the binder ID
+    // Determinar assets baseados no ID do binder
     final styleIndex = int.parse(newBinderId) % 4 + 1;
     final coverAsset = 'assets/capas/capabinder$styleIndex.png';
     final spineAsset = 'assets/capas/lombadabinder$styleIndex.png';
 
     try {
-      // Check if a binder with this ID already exists
-      final existingBinder = await db.query(
-        'binders', 
-        where: 'id = ?', 
-        whereArgs: [newBinderId]
-      );
-
-      if (existingBinder.isNotEmpty) {
-        print('Warning: Binder with ID $newBinderId already exists. Overwriting.');
-      }
-
-      // Insert new binder
-      final insertResult = await db.insert('binders', {
+      await db.insert('binders', {
         'id': newBinderId,
+        'user_id': _currentUserId,  // Adicionar ID do usuário
         'slots': '[]',
         'cover_asset': coverAsset,
         'spine_asset': spineAsset,
-        'binder_name': newBinderId,  // Explicitly set binder_name
+        'binder_name': newBinderId,
         'created_at': DateTime.now().toIso8601String(),
         'is_open': 0,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
 
-      print('New Binder Added: ');
+      print('✅ Novo Binder Adicionado: ');
       print('ID: $newBinderId');
+      print('Usuário: $_currentUserId');
       print('Cover Asset: $coverAsset');
-      print('Spine Asset: $spineAsset');
-      print('Insert Result: $insertResult');
 
-      // Verify the binder was added
-      final verifyResult = await db.query(
+      // Verificar se o binder foi realmente adicionado
+      final verifyBinder = await db.query(
         'binders', 
-        where: 'id = ?', 
-        whereArgs: [newBinderId]
+        where: 'id = ? AND user_id = ?', 
+        whereArgs: [newBinderId, _currentUserId]
       );
-      print('Verify Result: $verifyResult');
-
-      // Additional verification of all binders
-      final allBinders = await db.query('binders');
-      print('All Binders after addition:');
-      for (var binder in allBinders) {
-        print('Binder ID: ${binder['id']}, Cover Asset: ${binder['cover_asset']}');
+      
+      print('🔍 Verificação de binder:');
+      print('Binders encontrados: ${verifyBinder.length}');
+      if (verifyBinder.isNotEmpty) {
+        print('Detalhes do binder: ${verifyBinder.first}');
       }
 
       notifyBinderUpdate();
       return newBinderId;
     } catch (e) {
-      print('Error adding new binder: $e');
+      print('❌ Erro ao adicionar novo binder: $e');
       rethrow;
     }
   }
@@ -619,8 +644,8 @@ class DataStorageService {
     await db.update(
       'binders',
       {'slots': jsonEncode(slots)},
-      where: 'id = ?',
-      whereArgs: [binderId],
+      where: 'id = ? AND user_id = ?',
+      whereArgs: [binderId, _currentUserId],
     );
   }
 
@@ -630,8 +655,8 @@ class DataStorageService {
       await db.transaction((txn) async {
         await txn.delete(
           'photocards',
-          where: 'binder_id = ?',
-          whereArgs: [binderId],
+          where: 'binder_id = ? AND user_id = ?',
+          whereArgs: [binderId, _currentUserId],
         );
 
         for (int i = 0; i < slots.length; i++) {
@@ -643,6 +668,7 @@ class DataStorageService {
                 'binder_id': binderId,
                 'slot_index': i,
                 'page_number': 0,
+                'user_id': _currentUserId
               },
             );
           }
@@ -659,12 +685,12 @@ class DataStorageService {
     final db = await database;
     try {
       await db.transaction((txn) async {
-        await txn.delete('shared_pile');
+        await txn.delete('inventory', where: 'location = ?', whereArgs: ['shared_pile']);
 
         for (var card in cards) {
           await txn.insert(
-            'shared_pile',
-            {'image_path': card},
+            'inventory',
+            {'user_id': _currentUserId, 'instance_id': card, 'image_path': card, 'location': 'shared_pile'},
           );
         }
       });
@@ -685,7 +711,7 @@ class DataStorageService {
 
         // Verifica se há espaço no monte
         final sharedPileCount = Sqflite.firstIntValue(await txn.rawQuery(
-            "SELECT COUNT(*) FROM inventory WHERE location = 'shared_pile'"));
+            "SELECT COUNT(*) FROM inventory WHERE location = 'shared_pile' AND user_id = ?", [_currentUserId]));
 
         if (sharedPileCount! >= MAX_SHARED_PILE_CARDS) {
           // Se o monte estiver cheio, move um card do monte para a mochila
@@ -695,10 +721,10 @@ class DataStorageService {
                 created_at = ?,
                 binder_id = NULL,
                 slot_index = NULL
-            WHERE location = 'shared_pile'
+            WHERE location = 'shared_pile' AND user_id = ?
             ORDER BY created_at ASC
             LIMIT 1
-          ''', [DateTime.now().toIso8601String()]);
+          ''', [DateTime.now().toIso8601String(), _currentUserId]);
         }
 
         // Adiciona o novo card ao monte com ID único
@@ -709,6 +735,7 @@ class DataStorageService {
             'image_path': imagePath,
             'location': 'shared_pile',
             'created_at': DateTime.now().toIso8601String(),
+            'user_id': _currentUserId
           },
         );
 
@@ -722,41 +749,48 @@ class DataStorageService {
 
   Future<List<Map<String, String>>> getAvailablePhotocards() async {
     final db = await database;
+    
+    if (_currentUserId == null) {
+      throw Exception('Nenhum usuário definido');
+    }
+
     try {
+      // Log current user ID
+      print('🔍 Buscando photocards para usuário: $_currentUserId');
+
       final results = await db.query(
-        'inventory',
-        where: "location = 'backpack' OR location = 'shared_pile'",
-        columns: ['instance_id', 'image_path'],
+        'inventory', 
+        where: "location = 'backpack' AND user_id = ?",
+        whereArgs: [_currentUserId]
       );
 
-      // Agrupa os cards por image_path e pega o primeiro instance_id de cada grupo
-      Map<String, String> uniqueCards = {};
-      for (var row in results) {
-        String imagePath = row['image_path'] as String;
-        String instanceId = row['instance_id'] as String;
-
-        // Mantém apenas a primeira instância de cada imagem
-        if (!uniqueCards.containsKey(imagePath)) {
-          uniqueCards[imagePath] = instanceId;
-        }
+      // Log raw query results
+      print('📊 Resultados da consulta:');
+      print('Total de registros encontrados: ${results.length}');
+      for (var result in results) {
+        print('🖼️ Registro:');
+        result.forEach((key, value) {
+          print('   $key: $value');
+        });
       }
 
-      // Converte o mapa em lista de maps
-      List<Map<String, String>> groupedCards = uniqueCards.entries
-          .map((entry) => {
-                'imagePath': entry.key,
-                'instanceId': entry.value,
-              })
-          .toList();
+      // Converter para o tipo esperado
+      final photocards = results.map((row) => {
+        'instance_id': row['instance_id'] as String,
+        'image_path': row['image_path'] as String
+      }).toList();
 
-      print('Cards disponíveis (agrupados): ${groupedCards.length}');
-      for (var card in groupedCards) {
-        print('Card disponível: ${card['imagePath']} (${card['instanceId']})');
+      // Log converted photocards
+      print('📸 Photocards disponíveis:');
+      for (var photocard in photocards) {
+        print('🖼️ Photocard:');
+        print('   ID da instância: ${photocard['instance_id']}');
+        print('   Caminho da imagem: ${photocard['image_path']}');
       }
 
-      return groupedCards;
+      return photocards;
     } catch (e) {
-      print('Erro ao carregar cards disponíveis: $e');
+      print('❌ Erro ao buscar photocards disponíveis: $e');
       return [];
     }
   }
@@ -764,7 +798,7 @@ class DataStorageService {
   Future<List<String>> getSharedPileCards() async {
     final db = await database;
     try {
-      final results = await db.query('shared_pile');
+      final results = await db.query('inventory', where: 'user_id = ? AND location = ?', whereArgs: [_currentUserId, 'shared_pile']);
       final cards = results.map((row) => row['image_path'] as String).toList();
       print('Cards no monte: ${cards.length}');
       return cards;
@@ -777,11 +811,25 @@ class DataStorageService {
   Future<Map<String, List<String>>> getBackpackPhotocardsCount() async {
     final db = await database;
     try {
+      // Log current user ID
+      print('🔍 Buscando contagem de photocards para usuário: $_currentUserId');
+
       final results = await db.query(
         'inventory',
-        where: "location = 'backpack' OR location = 'shared_pile'",
+        where: "location = 'backpack' AND user_id = ?",
+        whereArgs: [_currentUserId],
         columns: ['image_path', 'instance_id', 'location'],
       );
+
+      // Log raw query results
+      print('📊 Resultados da consulta:');
+      print('Total de registros encontrados: ${results.length}');
+      for (var result in results) {
+        print('🖼️ Registro:');
+        result.forEach((key, value) {
+          print('   $key: $value');
+        });
+      }
 
       // Mapa que guarda o caminho da imagem e a lista de IDs únicos
       Map<String, List<String>> cardCount = {};
@@ -789,7 +837,6 @@ class DataStorageService {
       for (var row in results) {
         String imagePath = row['image_path'] as String;
         String instanceId = row['instance_id'] as String;
-        String location = row['location'] as String;
 
         if (!cardCount.containsKey(imagePath)) {
           cardCount[imagePath] = [];
@@ -799,14 +846,17 @@ class DataStorageService {
         cardCount[imagePath]!.add(instanceId);
       }
 
-      print('Contagem de cards disponíveis:');
-      cardCount.forEach((path, ids) {
-        print('$path: ${ids.length} cards (IDs: ${ids.join(", ")})');
+      // Log detailed card counts
+      print('🔢 Contagem de cards na mochila:');
+      cardCount.forEach((imagePath, instances) {
+        print('📊 Imagem: $imagePath');
+        print('   Contagem: ${instances.length}');
+        print('   IDs de instância: ${instances.join(", ")}');
       });
 
       return cardCount;
     } catch (e) {
-      print('Erro ao contar photocards disponíveis: $e');
+      print('❌ Erro ao contar photocards na mochila: $e');
       return {};
     }
   }
@@ -828,8 +878,8 @@ class DataStorageService {
           'page_number': pageNumber,
           'created_at': timestamp,
         },
-        where: 'instance_id = ?',
-        whereArgs: [instanceId],
+        where: 'instance_id = ? AND user_id = ?',
+        whereArgs: [instanceId, _currentUserId],
       );
     } catch (e) {
       print('Erro ao atualizar localização do card: $e');
@@ -858,14 +908,16 @@ class DataStorageService {
     print('\n=== Estado Atual do Inventário ===');
 
     final sharedPile = await db.query(
-      'inventory',
-      where: "location = 'shared_pile'",
+      'inventory', 
+      where: 'user_id = ? AND location = ?', 
+      whereArgs: [_currentUserId, 'shared_pile']
     );
     print('Monte compartilhado: ${sharedPile.length} cards');
 
     final binderCards = await db.query(
       'inventory',
-      where: "location = 'binder'",
+      where: "location = 'binder' AND user_id = ?",
+      whereArgs: [_currentUserId],
     );
     print('Cards nos binders: ${binderCards.length}');
     for (var card in binderCards) {
@@ -875,7 +927,8 @@ class DataStorageService {
 
     final backpackCards = await db.query(
       'inventory',
-      where: "location = 'backpack'",
+      where: "location = 'backpack' AND user_id = ?",
+      whereArgs: [_currentUserId],
     );
     print('Cards na mochila: ${backpackCards.length}');
 
@@ -890,7 +943,7 @@ class DataStorageService {
         if (fromLocation == 'backpack') {
           // Verifica se há espaço no monte
           final sharedPileCount = Sqflite.firstIntValue(await txn.rawQuery(
-              "SELECT COUNT(*) FROM inventory WHERE location = 'shared_pile'"));
+              "SELECT COUNT(*) FROM inventory WHERE location = 'shared_pile' AND user_id = ?", [_currentUserId]));
 
           if (sharedPileCount! >= MAX_SHARED_PILE_CARDS) {
             print('Monte cheio, não é possível mover card da mochila');
@@ -901,8 +954,8 @@ class DataStorageService {
           final cardResult = await txn.query(
             'inventory',
             columns: ['image_path'],
-            where: 'instance_id = ?',
-            whereArgs: [instanceId],
+            where: 'instance_id = ? AND user_id = ?',
+            whereArgs: [instanceId, _currentUserId],
           );
 
           if (cardResult.isNotEmpty) {
@@ -912,8 +965,8 @@ class DataStorageService {
             final backpackIds = await txn.query(
               'inventory',
               columns: ['instance_id'],
-              where: "location = 'backpack' AND image_path = ?",
-              whereArgs: [imagePath],
+              where: "location = 'backpack' AND image_path = ? AND user_id = ?",
+              whereArgs: [imagePath, _currentUserId],
               orderBy: 'created_at ASC',
             );
 
@@ -923,8 +976,8 @@ class DataStorageService {
               final currentId = row['instance_id'] as String;
               final isUsed = await txn.query(
                 'inventory',
-                where: "location = 'shared_pile' AND instance_id = ?",
-                whereArgs: [currentId],
+                where: "location = 'shared_pile' AND instance_id = ? AND user_id = ?",
+                whereArgs: [currentId, _currentUserId],
               );
               if (isUsed.isEmpty) {
                 idToMove = currentId;
@@ -942,8 +995,8 @@ class DataStorageService {
                   'binder_id': null,
                   'slot_index': null,
                 },
-                where: 'instance_id = ?',
-                whereArgs: [idToMove],
+                where: 'instance_id = ? AND user_id = ?',
+                whereArgs: [idToMove, _currentUserId],
               );
               print('Card movido da mochila para o monte (ID: $idToMove)');
             }
@@ -958,8 +1011,8 @@ class DataStorageService {
               'binder_id': null,
               'slot_index': null,
             },
-            where: 'instance_id = ?',
-            whereArgs: [instanceId],
+            where: 'instance_id = ? AND user_id = ?',
+            whereArgs: [instanceId, _currentUserId],
           );
           print('Card movido do monte para a mochila');
         }
@@ -980,8 +1033,8 @@ class DataStorageService {
           'spine_asset': spine,
           'updated_at': DateTime.now().toIso8601String(),
         },
-        where: 'id = ?',
-        whereArgs: [binderId],
+        where: 'id = ? AND user_id = ?',
+        whereArgs: [binderId, _currentUserId],
       );
       print('Capas do binder $binderId atualizadas com sucesso');
     } catch (e) {
@@ -995,8 +1048,8 @@ class DataStorageService {
       final results = await db.query(
         'binders',
         columns: ['cover_asset', 'spine_asset', 'keychain_asset'],
-        where: 'id = ?',
-        whereArgs: [binderId],
+        where: 'id = ? AND user_id = ?',
+        whereArgs: [binderId, _currentUserId],
       );
 
       if (results.isNotEmpty) {
@@ -1032,8 +1085,8 @@ class DataStorageService {
           'keychain_asset': keychainPath,
           'updated_at': DateTime.now().toIso8601String(),
         },
-        where: 'id = ?',
-        whereArgs: [binderId],
+        where: 'id = ? AND user_id = ?',
+        whereArgs: [binderId, _currentUserId],
       );
       print('Keychain do binder $binderId atualizado com sucesso');
     } catch (e) {
@@ -1046,7 +1099,8 @@ class DataStorageService {
     await db.update(
       'user_balance',
       {'k_coins': amount},
-      where: 'id = 1',
+      where: 'user_id = ?',
+      whereArgs: [_currentUserId],
     );
   }
 
@@ -1055,20 +1109,35 @@ class DataStorageService {
     await db.update(
       'user_balance',
       {'star_coins': amount},
-      where: 'id = 1',
+      where: 'user_id = ?',
+      whereArgs: [_currentUserId],
     );
   }
 
   Future<Map<String, int>> getBalance() async {
-    final db = await database;
-    final result = await db.query('user_balance', where: 'id = 1');
-    if (result.isNotEmpty) {
-      return {
-        'k_coins': result.first['k_coins'] as int,
-        'star_coins': result.first['star_coins'] as int,
-      };
+    if (_currentUserId == null) {
+      debugPrint('Erro: Usuário não definido ao buscar saldo');
+      return {'k_coins': 300, 'star_coins': 0};
     }
-    return {'k_coins': 300, 'star_coins': 0};
+
+    final db = await database;
+    final result = await db.query('user_balance', where: 'user_id = ?', whereArgs: [_currentUserId]);
+    
+    if (result.isEmpty) {
+      // Se não existir configuração de usuário, cria com 0 coins
+      await db.insert('user_balance', {
+        'user_id': _currentUserId,
+        'k_coins': 0,
+        'star_coins': 0,
+        'last_reward_time': 0,
+      });
+      return {'k_coins': 0, 'star_coins': 0};
+    }
+    
+    return {
+      'k_coins': result.first['k_coins'] as int,
+      'star_coins': result.first['star_coins'] as int,
+    };
   }
 
   Future<void> updateLastRewardTime(int timestamp) async {
@@ -1076,13 +1145,14 @@ class DataStorageService {
     await db.update(
       'user_balance',
       {'last_reward_time': timestamp},
-      where: 'id = 1',
+      where: 'user_id = ?',
+      whereArgs: [_currentUserId],
     );
   }
 
   Future<int> getLastRewardTime() async {
     final db = await database;
-    final result = await db.query('user_balance', where: 'id = 1');
+    final result = await db.query('user_balance', where: 'user_id = ?', whereArgs: [_currentUserId]);
     if (result.isNotEmpty) {
       return result.first['last_reward_time'] as int;
     }
@@ -1091,9 +1161,16 @@ class DataStorageService {
 
   Future<void> addPurchasedFrame(String framePath) async {
     final db = await database;
+    
+    if (_currentUserId == null) {
+      throw Exception('Nenhum usuário definido');
+    }
+    
     try {
-      await db.insert('purchased_frames', {'frame_path': framePath},
-          conflictAlgorithm: ConflictAlgorithm.ignore);
+      await db.insert('purchased_frames', {
+        'user_id': _currentUserId,
+        'frame_path': framePath
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
     } catch (e) {
       print('Erro ao adicionar moldura comprada: $e');
     }
@@ -1101,16 +1178,30 @@ class DataStorageService {
 
   Future<List<String>> getPurchasedFrames() async {
     final db = await database;
-    final results = await db.query('purchased_frames');
+    
+    if (_currentUserId == null) {
+      throw Exception('Nenhum usuário definido');
+    }
+
+    final results = await db.query(
+      'purchased_frames', 
+      where: 'user_id = ?', 
+      whereArgs: [_currentUserId]
+    );
     return results.map((row) => row['frame_path'] as String).toList();
   }
 
   Future<bool> isFramePurchased(String framePath) async {
     final db = await database;
+    
+    if (_currentUserId == null) {
+      throw Exception('Nenhum usuário definido');
+    }
+
     final result = await db.query(
       'purchased_frames',
-      where: 'frame_path = ?',
-      whereArgs: [framePath],
+      where: 'frame_path = ? AND user_id = ?',
+      whereArgs: [framePath, _currentUserId],
     );
     return result.isNotEmpty;
   }
@@ -1122,7 +1213,7 @@ class DataStorageService {
       await db.transaction((txn) async {
         // Verifica se há espaço no monte
         final sharedPileCount = Sqflite.firstIntValue(await txn.rawQuery(
-            "SELECT COUNT(*) FROM inventory WHERE location = 'shared_pile'"));
+            "SELECT COUNT(*) FROM inventory WHERE location = 'shared_pile' AND user_id = ?", [_currentUserId]));
 
         if (sharedPileCount! >= MAX_SHARED_PILE_CARDS) {
           // Se o monte estiver cheio, move direto para a mochila
@@ -1134,8 +1225,8 @@ class DataStorageService {
               'binder_id': null,
               'slot_index': null,
             },
-            where: 'instance_id = ?',
-            whereArgs: [instanceId],
+            where: 'instance_id = ? AND user_id = ?',
+            whereArgs: [instanceId, _currentUserId],
           );
           print(
               'Monte cheio: Card movido para a mochila (instanceId: $instanceId)');
@@ -1149,8 +1240,8 @@ class DataStorageService {
               'binder_id': null,
               'slot_index': null,
             },
-            where: 'instance_id = ?',
-            whereArgs: [instanceId],
+            where: 'instance_id = ? AND user_id = ?',
+            whereArgs: [instanceId, _currentUserId],
           );
           print('Card movido para o monte (instanceId: $instanceId)');
         }
@@ -1223,14 +1314,14 @@ class DataStorageService {
   Future<bool> canMoveToSharedPile() async {
     final db = await database;
     final sharedPileCount = Sqflite.firstIntValue(await db.rawQuery(
-        "SELECT COUNT(*) FROM inventory WHERE location = 'shared_pile'"));
+        "SELECT COUNT(*) FROM inventory WHERE location = 'shared_pile' AND user_id = ?", [_currentUserId]));
     return sharedPileCount! < MAX_SHARED_PILE_CARDS;
   }
 
   Future<bool> canAddMoreBinders() async {
     final db = await database;
     final binderCount = Sqflite.firstIntValue(
-      await db.rawQuery('SELECT COUNT(*) FROM binders')
+      await db.rawQuery('SELECT COUNT(*) FROM binders WHERE user_id = ?', [_currentUserId])
     ) ?? 0;
 
     return binderCount < 15;
@@ -1242,8 +1333,8 @@ class DataStorageService {
       await db.update(
         'binders', 
         {'is_open': isOpen ? 1 : 0}, 
-        where: 'id = ?', 
-        whereArgs: [binderId]
+        where: 'id = ? AND user_id = ?', 
+        whereArgs: [binderId, _currentUserId]
       );
       
       // Notificar sobre a atualização do binder
@@ -1256,17 +1347,20 @@ class DataStorageService {
 
   Future<int> getUserCoins() async {
     final db = await database;
-    final result = await db.query('user_balance', limit: 1);
+    final result = await db.query('user_balance', where: 'user_id = ?', whereArgs: [_currentUserId]);
     
     if (result.isEmpty) {
       // Se não existir configuração de usuário, cria com 0 coins
       await db.insert('user_balance', {
-        'k_coins': 0
+        'user_id': _currentUserId,
+        'k_coins': 0,
+        'star_coins': 0,
+        'last_reward_time': 0,
       });
       return 0;
     }
     
-    return result.first['k_coins'] as int? ?? 0;
+    return result.first['k_coins'] as int;
   }
 
   Future<void> deductUserCoins(int amount) async {
@@ -1280,7 +1374,8 @@ class DataStorageService {
     await db.update(
       'user_balance', 
       {'k_coins': currentCoins - amount},
-      where: '1=1'  // Update all rows
+      where: 'user_id = ?', 
+      whereArgs: [_currentUserId]
     );
   }
 
@@ -1292,35 +1387,45 @@ class DataStorageService {
   Future<List<Map<String, dynamic>>> getAllBinders() async {
     final db = await database;
     
-    // Retrieve all binders, ordered by ID
-    final binders = await db.query(
-      'binders', 
-      orderBy: 'CAST(id AS INTEGER) ASC'
-    );
-
-    print('getAllBinders - Total binders retrieved: ${binders.length}');
-    for (var binder in binders) {
-      print('Detailed Binder Information:');
-      print('ID: ${binder['id']}');
-      print('Binder Name: ${binder['binder_name']}');
-      print('Cover Asset: ${binder['cover_asset']}');
-      print('Spine Asset: ${binder['spine_asset']}');
-      print('Slots: ${binder['slots']}');
-      print('Created At: ${binder['created_at']}');
-      print('Updated At: ${binder['updated_at']}');
-      print('Is Open: ${binder['is_open']}');
-      print('Keychain Asset: ${binder['keychain_asset']}');
-      print('---');
+    if (_currentUserId == null) {
+      throw Exception('Nenhum usuário definido');
     }
 
-    return binders;
+    try {
+      final binders = await db.query(
+        'binders', 
+        where: 'user_id = ?', 
+        whereArgs: [_currentUserId],
+        orderBy: 'CAST(id AS INTEGER) ASC'
+      );
+
+      // Se não existem binders, cria um inicial
+      if (binders.isEmpty) {
+        print('⚠️ Nenhum binder encontrado. Criando binder inicial.');
+        final newBinderId = await addNewBinder();
+        
+        // Buscar o binder recém-criado
+        final initialBinders = await db.query(
+          'binders', 
+          where: 'id = ? AND user_id = ?', 
+          whereArgs: [newBinderId, _currentUserId]
+        );
+        
+        return initialBinders;
+      }
+
+      return binders;
+    } catch (e) {
+      print('Erro ao buscar binders: $e');
+      return [];
+    }
   }
 
   Future<void> initializeSharedPile() async {
     final db = await database;
     try {
       final existingCount = Sqflite.firstIntValue(
-          await db.rawQuery('SELECT COUNT(*) FROM inventory WHERE location = "shared_pile"'));
+          await db.rawQuery('SELECT COUNT(*) FROM inventory WHERE location = "shared_pile" AND user_id = ?', [_currentUserId]));
 
       if (existingCount! > 0) {
         print('Cards já existem no monte compartilhado, pulando inicialização');
@@ -1331,5 +1436,178 @@ class DataStorageService {
     } catch (e) {
       print('Erro ao inicializar monte compartilhado: $e');
     }
+  }
+
+  Future<List<Photocard>> getAllPhotocards() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'photocards', 
+      where: 'user_id = ?', 
+      whereArgs: [_currentUserId]
+    );
+    return maps.map((map) => Photocard.fromMap(map)).toList();
+  }
+
+  Future<Map<String, dynamic>?> getBinder(String binderId) async {
+    final db = await database;
+    
+    if (_currentUserId == null) {
+      throw Exception('Nenhum usuário definido');
+    }
+    
+    final result = await db.query(
+      'binders', 
+      where: 'id = ? AND user_id = ?',
+      whereArgs: [binderId, _currentUserId],
+      limit: 1
+    );
+
+    return result.isNotEmpty ? result.first : null;
+  }
+
+  Future<void> debugPrintCards() async {
+    final db = await database;
+    final cards = await db.query('photocards', where: 'user_id = ?', whereArgs: [_currentUserId]);
+    print('📋 Lista de photocards no banco:');
+    for (var card in cards) {
+      print(card);
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getSharedPilePhotocards() async {
+    final db = await database;
+    try {
+      return await db.query(
+        'photocards', 
+        where: 'user_id = ?', 
+        whereArgs: [_currentUserId]
+      );
+    } catch (e) {
+      print('Erro ao buscar photocards: $e');
+      return [];
+    }
+  }
+
+  Future<bool> addToSharedPile(String imagePath) async {
+    final db = await database;
+    try {
+      // Log the current user ID and image path
+      print('🔍 Tentando adicionar card ao monte');
+      print('👤 ID do usuário atual: $_currentUserId');
+      print('🖼️ Caminho da imagem: $imagePath');
+
+      final currentCount = Sqflite.firstIntValue(await db.rawQuery(
+          "SELECT COUNT(*) FROM inventory WHERE location = 'shared_pile' AND user_id = ?", [_currentUserId]));
+
+      print('📊 Contagem atual de cards no monte: $currentCount');
+
+      const int MAX_SHARED_PILE_CARDS = 10; // Defina o limite máximo
+
+      if (currentCount! < MAX_SHARED_PILE_CARDS) {
+        // Adicionar ao inventário
+        final instanceId = await addToInventory(imagePath, 'shared_pile');
+        print('✅ Card adicionado ao inventário. ID da instância: $instanceId');
+        return true;
+      } else {
+        await addToInventory(imagePath, 'backpack');
+        print('⚠️ Card adicionado à mochila (monte cheio)');
+        return false;
+      }
+    } catch (e) {
+      print('❌ Erro ao adicionar card: $e');
+      return false;
+    }
+  }
+}
+
+class Photocard {
+  final String imagePath;
+  final String instanceId;
+  final String binderId;
+  final int slotIndex;
+  final int pageNumber;
+
+  Photocard({
+    required this.imagePath,
+    required this.instanceId,
+    required this.binderId,
+    required this.slotIndex,
+    required this.pageNumber,
+  });
+
+  factory Photocard.fromMap(Map<String, dynamic> map) {
+    return Photocard(
+      imagePath: map['image_path'] as String,
+      instanceId: map['instance_id'] as String,
+      binderId: map['binder_id'] as String,
+      slotIndex: map['slot_index'] as int,
+      pageNumber: map['page_number'] as int,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'image_path': imagePath,
+      'instance_id': instanceId,
+      'binder_id': binderId,
+      'slot_index': slotIndex,
+      'page_number': pageNumber,
+    };
+  }
+}
+
+class Binder {
+  final String id;
+  final String slots;
+  final String coverAsset;
+  final String spineAsset;
+  final String? keychainAsset;
+  final String binderName;
+  final String createdAt;
+  final String updatedAt;
+  final int isOpen;
+  final String userId;
+
+  Binder({
+    required this.id,
+    required this.slots,
+    required this.coverAsset,
+    required this.spineAsset,
+    this.keychainAsset,
+    required this.binderName,
+    required this.createdAt,
+    required this.updatedAt,
+    required this.isOpen,
+    required this.userId,
+  });
+
+  factory Binder.fromMap(Map<String, dynamic> map) {
+    return Binder(
+      id: map['id'] as String,
+      slots: map['slots'] as String,
+      coverAsset: map['cover_asset'] as String,
+      spineAsset: map['spine_asset'] as String,
+      keychainAsset: map['keychain_asset'] as String?,
+      binderName: map['binder_name'] as String,
+      createdAt: map['created_at'] as String,
+      updatedAt: map['updated_at'] as String,
+      isOpen: map['is_open'] as int,
+      userId: map['user_id'] as String,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'slots': slots,
+      'cover_asset': coverAsset,
+      'spine_asset': spineAsset,
+      'keychain_asset': keychainAsset,
+      'binder_name': binderName,
+      'created_at': createdAt,
+      'updated_at': updatedAt,
+      'is_open': isOpen,
+      'user_id': userId,
+    };
   }
 }

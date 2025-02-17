@@ -10,17 +10,29 @@ class CurrencyService {
   static const String _initializedKey = 'initialized';
 
   static void initialize(DataStorageService dataStorageService) {
-    _dataStorageService = dataStorageService;
-    _logBalance();
+    try {
+      _dataStorageService = dataStorageService;
+      _logBalance();
+    } catch (e) {
+      print('Erro ao inicializar CurrencyService: $e');
+    }
   }
 
   static Future<void> _logBalance() async {
-    if (_dataStorageService == null) return;
-    final balance = await _dataStorageService!.getBalance();
-    print('=== Saldo Atual ===');
-    print('K-coins: ${balance['k_coins']}');
-    print('Star-coins: ${balance['star_coins']}');
-    print('==================');
+    try {
+      if (_dataStorageService == null) {
+        print('DataStorageService não inicializado');
+        return;
+      }
+      
+      final balance = await _dataStorageService!.getBalance();
+      print('=== Saldo Atual ===');
+      print('K-coins: ${balance['k_coins']}');
+      print('Star-coins: ${balance['star_coins']}');
+      print('==================');
+    } catch (e) {
+      print('Erro ao registrar saldo: $e');
+    }
   }
 
   static Future<void> initializeDefaultValues() async {

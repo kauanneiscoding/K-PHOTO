@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'currency_service.dart';
 import 'data_storage_service.dart';
+import 'package:k_photo/services/supabase_service.dart';
+import 'package:k_photo/login_page.dart';
 
 class ProfilePage extends StatefulWidget {
   final DataStorageService dataStorageService;
@@ -386,45 +388,77 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: Text('Perfil'),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.logout),
+            onPressed: () async {
+              try {
+                // Usar o serviço do Supabase para fazer logout
+                final supabaseService = SupabaseService();
+                await supabaseService.signOut();
+
+                // Navegar para a tela de login, removendo todas as rotas anteriores
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (context) => LoginPage()), 
+                  (Route<dynamic> route) => false
+                );
+              } catch (e) {
+                // Mostrar mensagem de erro se o logout falhar
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Erro ao fazer logout: $e'),
+                    backgroundColor: Colors.red,
+                  )
+                );
+              }
+            },
+          ),
+        ],
+      ),
       body: SingleChildScrollView(
-        child: Column(
-          children: [
-            Container(
-              height: 250,
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: Colors.pink[100],
-                borderRadius: BorderRadius.only(
-                  bottomLeft: Radius.circular(30),
-                  bottomRight: Radius.circular(30),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                height: 250,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.pink[100],
+                  borderRadius: BorderRadius.only(
+                    bottomLeft: Radius.circular(30),
+                    bottomRight: Radius.circular(30),
+                  ),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _buildProfilePicture(),
+                    SizedBox(height: 10),
+                    Text(
+                      '@username',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    SizedBox(height: 10),
+                    TextButton(
+                      onPressed: _showFrameSelector,
+                      child: Text(
+                        'Trocar moldura',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _buildProfilePicture(),
-                  SizedBox(height: 10),
-                  Text(
-                    '@username',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                  SizedBox(height: 10),
-                  TextButton(
-                    onPressed: _showFrameSelector,
-                    child: Text(
-                      'Trocar moldura',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
