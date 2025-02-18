@@ -79,7 +79,7 @@ class UserSyncService {
         }
         print('☁️ ${supabaseBinders.length} binders sincronizados do Supabase');
       } 
-      // Se não há binders no Supabase, criar um inicial
+      // Se não há binders no Supabase, criar um inicial APENAS se local também estiver vazio
       else if (localBinders.isEmpty) {
         print('⚠️ Nenhum binder encontrado. Criando binder inicial.');
         final newBinderId = await _dataStorage.addNewBinder();
@@ -111,12 +111,15 @@ class UserSyncService {
       print('❌ Erro ao sincronizar binders: $e');
       print('Detalhes do erro: $stackTrace');
       
-      // Tentar criar um binder como último recurso
-      try {
-        final fallbackBinderId = await _dataStorage.addNewBinder();
-        print('🚨 Binder de emergência criado: $fallbackBinderId');
-      } catch (fallbackError) {
-        print('❌ Falha crítica ao criar binder de emergência: $fallbackError');
+      // Verificar se já existem binders antes de criar um novo
+      final existingBinders = await _dataStorage.getAllBinders();
+      if (existingBinders.isEmpty) {
+        try {
+          final fallbackBinderId = await _dataStorage.addNewBinder();
+          print('🚨 Binder de emergência criado: $fallbackBinderId');
+        } catch (fallbackError) {
+          print('❌ Falha crítica ao criar binder de emergência: $fallbackError');
+        }
       }
     }
   }

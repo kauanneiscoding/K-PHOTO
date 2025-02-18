@@ -767,48 +767,42 @@ class DataStorageService {
     final db = await database;
     
     if (_currentUserId == null) {
-      throw Exception('Nenhum usuário definido');
-    }
-
-    try {
-      // Log current user ID
-      print('🔍 Buscando photocards para usuário: $_currentUserId');
-
-      final results = await db.query(
-        'inventory', 
-        where: "location = 'backpack' AND user_id = ?",
-        whereArgs: [_currentUserId]
-      );
-
-      // Log raw query results
-      print('📊 Resultados da consulta:');
-      print('Total de registros encontrados: ${results.length}');
-      for (var result in results) {
-        print('🖼️ Registro:');
-        result.forEach((key, value) {
-          print('   $key: $value');
-        });
-      }
-
-      // Converter para o tipo esperado
-      final photocards = results.map((row) => {
-        'instance_id': row['instance_id'] as String,
-        'image_path': row['image_path'] as String
-      }).toList();
-
-      // Log converted photocards
-      print('📸 Photocards disponíveis:');
-      for (var photocard in photocards) {
-        print('🖼️ Photocard:');
-        print('   ID da instância: ${photocard['instance_id']}');
-        print('   Caminho da imagem: ${photocard['image_path']}');
-      }
-
-      return photocards;
-    } catch (e) {
-      print('❌ Erro ao buscar photocards disponíveis: $e');
       return [];
     }
+
+    final results = await db.query(
+      'inventory', 
+      where: 'user_id = ? AND location = ?', 
+      whereArgs: [_currentUserId, 'backpack']
+    );
+
+    // Convert dynamic results to Map<String, String>
+    return results.map((result) => {
+      'id': result['id'].toString(),
+      'image_path': result['image_path'] as String,
+      'instance_id': result['instance_id'] as String,
+    }).toList();
+  }
+
+  Future<void> deductUserCoins(int amount) async {
+    final db = await database;
+    final currentCoins = await getUserCoins();
+    
+    if (currentCoins < amount) {
+      throw Exception('Saldo insuficiente');
+    }
+    
+    await db.update(
+      'user_balance', 
+      {'k_coins': currentCoins - amount},
+      where: 'user_id = ?', 
+      whereArgs: [_currentUserId]
+    );
+  }
+
+  Future<int> getKCoins() async {
+    final balance = await getBalance();
+    return balance['k_coins'] ?? 300;
   }
 
   Future<List<String>> getSharedPileCards() async {
@@ -828,7 +822,7 @@ class DataStorageService {
     final db = await database;
     try {
       // Log current user ID
-      print('🔍 Buscando contagem de photocards para usuário: $_currentUserId');
+      print('🔍 Buscando photocards para usuário: $_currentUserId');
 
       final results = await db.query(
         'inventory',
@@ -1140,7 +1134,21 @@ class DataStorageService {
     final result = await db.query('user_balance', where: 'user_id = ?', whereArgs: [_currentUserId]);
     
     if (result.isEmpty) {
-      // Se não existir configuração de usuário, cria com 0 coins
+      // Verificar se o usuário já tem algum registro no banco
+      final userRecords = await db.query('user_balance', where: 'user_id = ?', whereArgs: [_currentUserId]);
+      
+      // Se for o primeiro login deste usuário, definir 300 coins
+      if (userRecords.isEmpty) {
+        await db.insert('user_balance', {
+          'user_id': _currentUserId,
+          'k_coins': 300,  // Definir saldo inicial para 300 K-Coins
+          'star_coins': 0,
+          'last_reward_time': 0,
+        });
+        return {'k_coins': 300, 'star_coins': 0};
+      }
+      
+      // Se não for o primeiro login, criar com 0 coins
       await db.insert('user_balance', {
         'user_id': _currentUserId,
         'k_coins': 0,
@@ -1366,7 +1374,21 @@ class DataStorageService {
     final result = await db.query('user_balance', where: 'user_id = ?', whereArgs: [_currentUserId]);
     
     if (result.isEmpty) {
-      // Se não existir configuração de usuário, cria com 0 coins
+      // Verificar se o usuário já tem algum registro no banco
+      final userRecords = await db.query('user_balance', where: 'user_id = ?', whereArgs: [_currentUserId]);
+      
+      // Se for o primeiro login deste usuário, definir 300 coins
+      if (userRecords.isEmpty) {
+        await db.insert('user_balance', {
+          'user_id': _currentUserId,
+          'k_coins': 300,
+          'star_coins': 0,
+          'last_reward_time': 0,
+        });
+        return 300;
+      }
+      
+      // Se não for o primeiro login, criar com 0 coins
       await db.insert('user_balance', {
         'user_id': _currentUserId,
         'k_coins': 0,
@@ -1377,27 +1399,6 @@ class DataStorageService {
     }
     
     return result.first['k_coins'] as int;
-  }
-
-  Future<void> deductUserCoins(int amount) async {
-    final db = await database;
-    final currentCoins = await getUserCoins();
-    
-    if (currentCoins < amount) {
-      throw Exception('Saldo insuficiente');
-    }
-    
-    await db.update(
-      'user_balance', 
-      {'k_coins': currentCoins - amount},
-      where: 'user_id = ?', 
-      whereArgs: [_currentUserId]
-    );
-  }
-
-  Future<int> getKCoins() async {
-    final balance = await getBalance();
-    return balance['k_coins'] ?? 300;
   }
 
   Future<List<Map<String, dynamic>>> getAllBinders() async {
