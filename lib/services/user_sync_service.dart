@@ -63,19 +63,30 @@ class UserSyncService {
       final localBinders = await _dataStorage.getAllBinders();
       print('🔍 Binders locais encontrados: ${localBinders.length}');
 
-      // Priorizar binders do Supabase
+      // Se há binders no Supabase, sincronizar com os locais
       if (supabaseBinders.isNotEmpty) {
-        // Limpar binders locais antes de adicionar os do Supabase
-        for (var localBinder in localBinders) {
-          await _supabase.from('binders').delete().eq('id', localBinder['id']);
-        }
-
-        // Adicionar binders do Supabase localmente
+        // Atualizar ou adicionar binders do Supabase localmente
         for (var binderData in supabaseBinders) {
-          await _dataStorage.addBinder(
-            binderData['id'], 
-            binderData['slots'] ?? '[]'
+          // Verificar se o binder já existe localmente
+          final existingLocalBinder = localBinders.firstWhere(
+            (local) => local['id'] == binderData['id'], 
+            orElse: () => <String, dynamic>{}
           );
+
+          if (existingLocalBinder.isEmpty) {
+            // Adicionar novo binder se não existir
+            await _dataStorage.addBinder(
+              binderData['id'], 
+              binderData['slots'] ?? '[]'
+            );
+          } else {
+            // Atualizar binder existente com dados do Supabase
+            await _dataStorage.updateBinderCovers(
+              binderData['id'], 
+              binderData['cover_asset'] ?? existingLocalBinder['cover_asset'],
+              binderData['spine_asset'] ?? existingLocalBinder['spine_asset']
+            );
+          }
         }
         print('☁️ ${supabaseBinders.length} binders sincronizados do Supabase');
       } 
@@ -99,6 +110,20 @@ class UserSyncService {
           });
           print('☁️ Novo binder sincronizado com Supabase');
         }
+      }
+
+      // Sincronizar todos os binders locais com Supabase
+      final updatedLocalBinders = await _dataStorage.getAllBinders();
+      for (var localBinder in updatedLocalBinders) {
+        await _supabase.from('binders').upsert({
+          'id': localBinder['id'],
+          'user_id': _currentUserId,
+          'slots': localBinder['slots'] ?? '[]',
+          'cover_asset': localBinder['cover_asset'],
+          'spine_asset': localBinder['spine_asset'],
+          'binder_name': localBinder['binder_name'] ?? localBinder['id'],
+          'created_at': localBinder['created_at'] ?? DateTime.now().toIso8601String(),
+        });
       }
 
       // Verificar novamente se há binders após a sincronização

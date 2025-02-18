@@ -1047,8 +1047,25 @@ class DataStorageService {
         whereArgs: [binderId, _currentUserId],
       );
       print('Capas do binder $binderId atualizadas com sucesso');
+
+      // Sincronizar com Supabase
+      try {
+        await Supabase.instance.client
+          .from('binders')
+          .upsert({
+            'id': binderId,
+            'user_id': _currentUserId,
+            'cover_asset': cover,
+            'spine_asset': spine,
+            'updated_at': DateTime.now().toIso8601String(),
+          });
+        print('Capas do binder sincronizadas com Supabase');
+      } catch (supabaseError) {
+        print('Erro ao sincronizar capas com Supabase: $supabaseError');
+      }
     } catch (e) {
       print('Erro ao atualizar capas do binder: $e');
+      rethrow;
     }
   }
 
