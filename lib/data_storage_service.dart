@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart' as uuid;
 
 class StoreCard {
   final String imagePath;
@@ -87,7 +88,7 @@ class DataStorageService {
     try {
       _database = await openDatabase(
         path,
-        version: 15,  // Increment version to force migration
+        version: 16,  // Increment version to force migration
         onCreate: (db, version) async {
           print('🚀 Database onCreate called. Creating initial tables...');
           
@@ -115,7 +116,8 @@ class DataStorageService {
                 binder_name TEXT,
                 created_at TEXT,
                 updated_at TEXT,
-                is_open INTEGER DEFAULT 0
+                is_open INTEGER DEFAULT 0,
+                name TEXT
               )
             ''');
             print('✅ binders table created successfully');
@@ -169,10 +171,21 @@ class DataStorageService {
                 binder_name TEXT,
                 created_at TEXT,
                 updated_at TEXT,
-                is_open INTEGER DEFAULT 0
+                is_open INTEGER DEFAULT 0,
+                name TEXT
               )
             ''');
             print('✅ binders table created/updated in onUpgrade');
+
+            if (oldVersion < 16) {
+              // Migração para adicionar a coluna 'name'
+              try {
+                await db.execute('ALTER TABLE binders ADD COLUMN name TEXT');
+                print('✅ Coluna "name" adicionada à tabela binders');
+              } catch (e) {
+                print('❌ Erro ao adicionar coluna "name": $e');
+              }
+            }
           } catch (e) {
             print('❌ Error creating binders table in onUpgrade: $e');
             rethrow;
@@ -516,204 +529,15 @@ class DataStorageService {
     }
   }
 
-  Future<String> generateUniqueBinderId() async {
-    final db = await database;
-    final result = await db.query(
-      'binders', 
-      columns: ['id'], 
-      where: 'user_id = ?',
-      whereArgs: [_currentUserId],
-      orderBy: 'CAST(id AS INTEGER) DESC', 
-      limit: 1
-    );
-
-    int lastId = result.isNotEmpty 
-      ? int.parse(result.first['id'].toString()) 
-      : -1;
-    
-    return (lastId + 1).toString();
+  String generateUniqueBinderId() {
+    // Gera um UUID único para o binder, garantindo que seja sempre uma string
+    return uuid.Uuid().v4();
   }
 
-  Future<void> addBinder(String binderId, String slots) async {
-    final db = await database;
-    
-    // Determine cover and spine assets based on the binder ID
-    final styleIndex = int.parse(binderId) % 4 + 1;
-    final coverAsset = 'assets/capas/capabinder$styleIndex.png';
-    final spineAsset = 'assets/capas/lombadabinder$styleIndex.png';
-
-    try {
-      // First, check if the binder already exists
-      final existingBinder = await db.query(
-        'binders', 
-        where: 'id = ? AND user_id = ?', 
-        whereArgs: [binderId, _currentUserId]
-      );
-
-      if (existingBinder.isNotEmpty) {
-        // Update existing binder if cover or spine assets are missing
-        await db.update(
-          'binders', 
-          {
-            'slots': slots ?? '[]',
-            'cover_asset': coverAsset,
-            'spine_asset': spineAsset,
-            'binder_name': binderId,  // Explicitly set binder_name
-            'updated_at': DateTime.now().toIso8601String(),
-          },
-          where: 'id = ? AND user_id = ?',
-          whereArgs: [binderId, _currentUserId]
-        );
-      } else {
-        // Insert new binder
-        await db.insert('binders', {
-          'id': binderId,
-          'user_id': _currentUserId,  // Adicionar ID do usuário
-          'slots': slots ?? '[]',
-          'cover_asset': coverAsset,
-          'spine_asset': spineAsset,
-          'binder_name': binderId,  // Explicitly set binder_name
-          'created_at': DateTime.now().toIso8601String(),
-          'is_open': 0,  // Ensure binder starts closed
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
-      }
-
-      print('Binder processed. ID: $binderId, Cover: $coverAsset, Spine: $spineAsset');
-      notifyBinderUpdate();
-    } catch (e) {
-      print('Error processing binder: $e');
-      rethrow;
-    }
-  }
-
-  Future<String> addNewBinder() async {
-    final db = await database;
-    
-    if (_currentUserId == null) {
-      throw Exception('Nenhum usuário definido');
-    }
-    
-    print('🔍 Criando novo binder para usuário: $_currentUserId');
-    
-    // Gerar um ID único para o binder
-    final result = await db.query(
-      'binders', 
-      columns: ['id'], 
-      where: 'user_id = ?',
-      whereArgs: [_currentUserId],
-      orderBy: 'CAST(id AS INTEGER) DESC', 
-      limit: 1
-    );
-
-    int lastId = result.isNotEmpty 
-      ? int.parse(result.first['id'].toString()) 
-      : -1;
-    
-    final newBinderId = (lastId + 1).toString();
-
-    // Determinar assets baseados no ID do binder
-    final styleIndex = int.parse(newBinderId) % 4 + 1;
-    final coverAsset = 'assets/capas/capabinder$styleIndex.png';
-    final spineAsset = 'assets/capas/lombadabinder$styleIndex.png';
-
-    try {
-      await db.insert('binders', {
-        'id': newBinderId,
-        'user_id': _currentUserId,  // Adicionar ID do usuário
-        'slots': '[]',
-        'cover_asset': coverAsset,
-        'spine_asset': spineAsset,
-        'binder_name': newBinderId,
-        'created_at': DateTime.now().toIso8601String(),
-        'is_open': 0,
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
-
-      print('✅ Novo Binder Adicionado: ');
-      print('ID: $newBinderId');
-      print('Usuário: $_currentUserId');
-      print('Cover Asset: $coverAsset');
-
-      // Verificar se o binder foi realmente adicionado
-      final verifyBinder = await db.query(
-        'binders', 
-        where: 'id = ? AND user_id = ?', 
-        whereArgs: [newBinderId, _currentUserId]
-      );
-      
-      print('🔍 Verificação de binder:');
-      print('Binders encontrados: ${verifyBinder.length}');
-      if (verifyBinder.isNotEmpty) {
-        print('Detalhes do binder: ${verifyBinder.first}');
-      }
-
-      notifyBinderUpdate();
-      return newBinderId;
-    } catch (e) {
-      print('❌ Erro ao adicionar novo binder: $e');
-      rethrow;
-    }
-  }
-
-  Future<void> updateBinderSlots(
-      String binderId, List<Map<String, dynamic>> slots) async {
-    final db = await database;
-    await db.update(
-      'binders',
-      {'slots': jsonEncode(slots)},
-      where: 'id = ? AND user_id = ?',
-      whereArgs: [binderId, _currentUserId],
-    );
-  }
-
-  Future<void> saveBinderState(String binderId, List<String?> slots) async {
-    final db = await database;
-    try {
-      await db.transaction((txn) async {
-        await txn.delete(
-          'photocards',
-          where: 'binder_id = ? AND user_id = ?',
-          whereArgs: [binderId, _currentUserId],
-        );
-
-        for (int i = 0; i < slots.length; i++) {
-          if (slots[i] != null) {
-            await txn.insert(
-              'photocards',
-              {
-                'image_path': slots[i],
-                'binder_id': binderId,
-                'slot_index': i,
-                'page_number': 0,
-                'user_id': _currentUserId
-              },
-            );
-          }
-        }
-      });
-      print('Estado do binder $binderId salvo com sucesso');
-    } catch (e) {
-      print('Erro ao salvar estado do binder: $e');
-      rethrow;
-    }
-  }
-
-  Future<void> saveSharedPileState(List<String> cards) async {
-    final db = await database;
-    try {
-      await db.transaction((txn) async {
-        await txn.delete('inventory', where: 'location = ?', whereArgs: ['shared_pile']);
-
-        for (var card in cards) {
-          await txn.insert(
-            'inventory',
-            {'user_id': _currentUserId, 'instance_id': card, 'image_path': card, 'location': 'shared_pile'},
-          );
-        }
-      });
-      print('Monte compartilhado salvo com sucesso: ${cards.length} cards');
-    } catch (e) {
-      print('Erro ao salvar monte compartilhado: $e');
-    }
+  // Método para gerar um índice de estilo baseado no ID do binder
+  int _generateStyleIndex(String binderId) {
+    // Usar o hashCode para gerar um índice consistente baseado na string
+    return binderId.hashCode.abs() % 4 + 1;
   }
 
   Future<void> movePhotocardToPile(String imagePath,
@@ -1425,33 +1249,86 @@ class DataStorageService {
       throw Exception('Nenhum usuário definido');
     }
 
-    try {
-      final binders = await db.query(
-        'binders', 
-        where: 'user_id = ?', 
-        whereArgs: [_currentUserId],
-        orderBy: 'CAST(id AS INTEGER) ASC'
-      );
+    // Consulta para buscar binders do usuário atual
+    final binders = await db.query(
+      'binders', 
+      where: 'user_id = ?', 
+      whereArgs: [_currentUserId],
+      orderBy: 'created_at ASC'  // Ordenar por data de criação
+    );
 
-      // Se não existem binders, cria um inicial
-      if (binders.isEmpty) {
-        print('⚠️ Nenhum binder encontrado. Criando binder inicial.');
-        final newBinderId = await addNewBinder();
+    // Log detalhado para rastrear binders
+    print('🔍 Binders encontrados: ${binders.length}');
+    for (var binder in binders) {
+      print('📋 Binder: ${binder['id']}, Nome: ${binder['name'] ?? binder['binder_name']}, Criado em: ${binder['created_at']}');
+    }
+
+    // Se não existem binders, verificar se realmente não há nenhum
+    if (binders.isEmpty) {
+      print('⚠️ Nenhum binder encontrado para o usuário atual.');
+      
+      // Verificação adicional para evitar criação desnecessária
+      final totalBinders = Sqflite.firstIntValue(
+        await db.rawQuery('SELECT COUNT(*) FROM binders')
+      ) ?? 0;
+
+      if (totalBinders == 0) {
+        print('🚨 Nenhum binder no banco de dados. Criando binder inicial.');
+        
+        // Criar binder inicial apenas uma vez
+        final initialBinderId = await addNewBinder();
         
         // Buscar o binder recém-criado
         final initialBinders = await db.query(
           'binders', 
           where: 'id = ? AND user_id = ?', 
-          whereArgs: [newBinderId, _currentUserId]
+          whereArgs: [initialBinderId, _currentUserId]
         );
         
         return initialBinders;
+      } else {
+        print('❗ Há binders no banco, mas nenhum para o usuário atual.');
+        return [];
       }
+    }
 
-      return binders;
-    } catch (e) {
-      print('Erro ao buscar binders: $e');
-      return [];
+    return binders;
+  }
+
+  Future<void> preventBinderDuplication() async {
+    final db = await database;
+    
+    if (_currentUserId == null) {
+      throw Exception('Nenhum usuário definido');
+    }
+
+    // Buscar binders duplicados
+    final duplicateBinders = await db.rawQuery('''
+      SELECT id, COUNT(*) as count 
+      FROM binders 
+      WHERE user_id = ? 
+      GROUP BY id 
+      HAVING count > 1
+    ''', [_currentUserId]);
+
+    if (duplicateBinders.isNotEmpty) {
+      print('🚨 Binders duplicados encontrados: ${duplicateBinders.length}');
+      
+      // Remover duplicatas, mantendo o primeiro registro
+      for (var duplicate in duplicateBinders) {
+        final binderId = duplicate['id'] as String;
+        
+        // Excluir registros duplicados, mantendo o primeiro
+        await db.delete(
+          'binders', 
+          where: 'id = ? AND user_id = ? AND rowid NOT IN (SELECT MIN(rowid) FROM binders WHERE id = ? AND user_id = ?)',
+          whereArgs: [binderId, _currentUserId, binderId, _currentUserId]
+        );
+      }
+      
+      print('✅ Binders duplicados removidos com sucesso');
+    } else {
+      print('✅ Nenhum binder duplicado encontrado');
     }
   }
 
@@ -1491,9 +1368,8 @@ class DataStorageService {
     
     final result = await db.query(
       'binders', 
-      where: 'id = ? AND user_id = ?',
-      whereArgs: [binderId, _currentUserId],
-      limit: 1
+      where: 'id = ? AND user_id = ?', 
+      whereArgs: [binderId, _currentUserId]
     );
 
     return result.isNotEmpty ? result.first : null;
@@ -1552,6 +1428,282 @@ class DataStorageService {
       return false;
     }
   }
+
+  Future<void> addBinder(String binderId, String slots) async {
+    final db = await database;
+    
+    try {
+      // Garantir que o binderId seja uma string
+      final safeBinderId = binderId.toString();
+      
+      // Determine cover and spine assets based on the binder ID
+      final styleIndex = (safeBinderId.hashCode % 4) + 1;
+      final coverAsset = 'assets/capas/capabinder$styleIndex.png';
+      final spineAsset = 'assets/capas/lombadabinder$styleIndex.png';
+
+      // First, check if the binder already exists
+      final existingBinder = await db.query(
+        'binders', 
+        where: 'id = ? AND user_id = ?', 
+        whereArgs: [safeBinderId, _currentUserId]
+      );
+
+      if (existingBinder.isNotEmpty) {
+        // Update existing binder if cover or spine assets are missing
+        await db.update(
+          'binders', 
+          {
+            'slots': slots ?? '[]',
+            'cover_asset': coverAsset,
+            'spine_asset': spineAsset,
+            'binder_name': safeBinderId,  // Explicitly set binder_name
+            'name': safeBinderId,  // Update 'name' column
+            'updated_at': DateTime.now().toIso8601String(),
+          },
+          where: 'id = ? AND user_id = ?',
+          whereArgs: [safeBinderId, _currentUserId]
+        );
+      } else {
+        // Insert new binder
+        await db.insert('binders', {
+          'id': safeBinderId,
+          'user_id': _currentUserId,
+          'slots': slots ?? '[]',
+          'cover_asset': coverAsset,
+          'spine_asset': spineAsset,
+          'binder_name': safeBinderId,
+          'name': safeBinderId,  // Add 'name' column
+          'created_at': DateTime.now().toIso8601String(),
+          'is_open': 0,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+
+      print('Binder processed. ID: $safeBinderId, Cover: $coverAsset, Spine: $spineAsset');
+      notifyBinderUpdate();
+    } catch (e) {
+      print('Error processing binder: $e');
+      rethrow;
+    }
+  }
+
+  // Método para obter o binder inicial
+  Future<Map<String, dynamic>?> getInitialBinder() async {
+    final db = await database;
+    
+    if (_currentUserId == null) {
+      throw Exception('Nenhum usuário definido');
+    }
+
+    // Buscar binders iniciais
+    final initialBinders = await db.query(
+      'binders', 
+      where: '(name = ? OR binder_name = ?) AND user_id = ?', 
+      whereArgs: ['Primeiro Binder', 'Primeiro Binder', _currentUserId],
+      limit: 1
+    );
+
+    // Retornar o primeiro binder inicial encontrado, se existir
+    return initialBinders.isNotEmpty ? initialBinders.first : null;
+  }
+
+  // Método para criar o binder inicial
+  Future<String> _createInitialBinder() async {
+    final db = await database;
+
+    // Gerar um novo UUID para o binder
+    final newBinderId = generateUniqueBinderId();
+
+    // Determinar assets baseados no ID do binder
+    final styleIndex = _generateStyleIndex(newBinderId);
+    final coverAsset = 'assets/capas/capabinder$styleIndex.png';
+    final spineAsset = 'assets/capas/lombadabinder$styleIndex.png';
+
+    try {
+      // Log dos dados antes da inserção
+      print('📝 Criando Binder Inicial:');
+      print('   ID: $newBinderId');
+      print('   Nome: Primeiro Binder');
+      print('   Usuário: $_currentUserId');
+      print('   Índice de Estilo: $styleIndex');
+
+      // Inserir novo binder inicial
+      await db.insert('binders', {
+        'id': newBinderId,
+        'user_id': _currentUserId,
+        'slots': '[]',
+        'cover_asset': coverAsset,
+        'spine_asset': spineAsset,
+        'name': 'Primeiro Binder',  // Nome fixo para o binder inicial
+        'binder_name': 'Primeiro Binder',  // Manter compatibilidade
+        'created_at': DateTime.now().toIso8601String(),
+        'is_open': 0,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+
+      print('✅ Binder Inicial Criado: $newBinderId');
+      
+      notifyBinderUpdate();
+      return newBinderId;
+    } catch (e) {
+      print('❌ Erro ao criar binder inicial: $e');
+      rethrow;
+    }
+  }
+
+  Future<String> addNewBinder() async {
+    try {
+      // Validar o usuário atual antes de qualquer operação
+      await _validateCurrentUser();
+
+      final db = await database;
+      
+      // Log detalhado de início da operação
+      print('🔍 Iniciando Criação de Novo Binder');
+      print('   Timestamp: ${DateTime.now().toIso8601String()}');
+      print('   Usuário Atual: $_currentUserId');
+
+      // Verificar todos os binders existentes para o usuário atual
+      final existingBinders = await db.query(
+        'binders', 
+        where: 'user_id = ?',
+        whereArgs: [_currentUserId]
+      );
+
+      // Log de binders existentes
+      print('📋 Binders Existentes para o Usuário: ${existingBinders.length}');
+      for (var binder in existingBinders) {
+        print('   Binder ID: ${binder['id']}');
+        print('   Nome: ${binder['name'] ?? binder['binder_name']}');
+      }
+
+      // Gerar nome único para o binder
+      String generateUniqueName(int count) {
+        // Se não há binders, criar o inicial
+        if (count == 0) {
+          return 'Primeiro Binder';
+        }
+        
+        // Verificar se o nome já existe
+        final proposedName = 'Binder ${count + 1}';
+        final nameExists = existingBinders.any(
+          (binder) => 
+            (binder['name'] as String?)?.toLowerCase() == proposedName.toLowerCase() ||
+            (binder['binder_name'] as String?)?.toLowerCase() == proposedName.toLowerCase()
+        );
+
+        return nameExists ? generateUniqueName(count + 1) : proposedName;
+      }
+
+      // Determinar o nome do binder
+      final binderName = generateUniqueName(existingBinders.length);
+      
+      // Log detalhado para verificar o nome
+      print('🏷️ Nome do Binder Gerado: $binderName');
+      print('🔢 Contagem de Binders Existentes: ${existingBinders.length}');
+
+      // Gerar um novo UUID para o binder
+      final newBinderId = generateUniqueBinderId();
+
+      // Determinar assets baseados no ID do binder
+      final styleIndex = _generateStyleIndex(newBinderId);
+      final coverAsset = 'assets/capas/capabinder$styleIndex.png';
+      final spineAsset = 'assets/capas/lombadabinder$styleIndex.png';
+
+      // Log dos dados antes da inserção
+      print('📝 Dados para Inserção do Novo Binder:');
+      print('   ID: $newBinderId');
+      print('   Nome: $binderName');
+      print('   Usuário: $_currentUserId');
+      print('   Índice de Estilo: $styleIndex');
+
+      // Verificar se o binder já existe antes de inserir
+      final existingBinderCheck = await db.query(
+        'binders', 
+        where: 'id = ? AND user_id = ?', 
+        whereArgs: [newBinderId, _currentUserId]
+      );
+
+      if (existingBinderCheck.isNotEmpty) {
+        print('❌ Binder com este ID já existe. Gerando novo ID.');
+        return await addNewBinder(); // Recursivamente gerar novo ID
+      }
+
+      // Inserir novo binder
+      await db.insert('binders', {
+        'id': newBinderId,
+        'user_id': _currentUserId,
+        'slots': '[]',
+        'cover_asset': coverAsset,
+        'spine_asset': spineAsset,
+        'name': binderName,  // Usar nome garantido
+        'binder_name': binderName,  // Manter compatibilidade
+        'created_at': DateTime.now().toIso8601String(),
+        'is_open': 0,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+
+      print('✅ Novo Binder Adicionado: ');
+      print('ID: $newBinderId');
+      print('Nome: $binderName');
+      print('Usuário: $_currentUserId');
+      print('Cover Asset: $coverAsset');
+
+      // Verificar se o binder foi realmente adicionado
+      final verifyBinder = await db.query(
+        'binders', 
+        where: 'id = ? AND user_id = ?', 
+        whereArgs: [newBinderId, _currentUserId]
+      );
+      
+      print('🔍 Verificação de binder:');
+      print('Binders encontrados: ${verifyBinder.length}');
+      if (verifyBinder.isNotEmpty) {
+        print('Detalhes do binder: ${verifyBinder.first}');
+        
+        // Log específico para verificar o nome
+        print('📋 Nome do Binder Verificado: ${verifyBinder.first['name']}');
+        print('📋 Nome do Binder (binder_name): ${verifyBinder.first['binder_name']}');
+      }
+
+      notifyBinderUpdate();
+      return newBinderId;
+    } catch (e, stackTrace) {
+      print('❌ Erro ao adicionar novo binder: $e');
+      print('Detalhes do erro: $stackTrace');
+      
+      // Tentar recuperar informações adicionais sobre o erro
+      final user = Supabase.instance.client.auth.currentUser;
+      print('Informações do Usuário no Momento do Erro:');
+      print('   ID do Usuário: ${user?.id ?? "N/A"}');
+      print('   Email do Usuário: ${user?.email ?? "N/A"}');
+      
+      rethrow;
+    }
+  }
+
+  // Método para verificar e validar o usuário atual
+  Future<void> _validateCurrentUser() async {
+    // Verificar se o usuário atual está definido
+    if (_currentUserId == null || _currentUserId!.isEmpty) {
+      // Log detalhado sobre o estado do usuário
+      print('❌ ERRO CRÍTICO: Usuário atual não definido');
+      
+      // Tentar recuperar o usuário do Supabase
+      final user = Supabase.instance.client.auth.currentUser;
+      
+      if (user == null) {
+        print('🚨 Nenhum usuário autenticado no Supabase');
+        throw Exception('Nenhum usuário autenticado');
+      }
+
+      // Definir o usuário atual com o ID do Supabase
+      print('🔍 Usuário recuperado do Supabase: ${user.id}');
+      _currentUserId = user.id;
+    }
+
+    // Log adicional para verificação
+    print('✅ Usuário Atual Validado:');
+    print('   ID do Usuário: $_currentUserId');
+    print('   Email do Usuário: ${Supabase.instance.client.auth.currentUser?.email ?? "N/A"}');
+  }
 }
 
 class Photocard {
@@ -1601,6 +1753,7 @@ class Binder {
   final String updatedAt;
   final int isOpen;
   final String userId;
+  final String name;
 
   Binder({
     required this.id,
@@ -1613,6 +1766,7 @@ class Binder {
     required this.updatedAt,
     required this.isOpen,
     required this.userId,
+    required this.name,
   });
 
   factory Binder.fromMap(Map<String, dynamic> map) {
@@ -1627,6 +1781,7 @@ class Binder {
       updatedAt: map['updated_at'] as String,
       isOpen: map['is_open'] as int,
       userId: map['user_id'] as String,
+      name: map['name'] as String,
     );
   }
 
@@ -1642,6 +1797,7 @@ class Binder {
       'updated_at': updatedAt,
       'is_open': isOpen,
       'user_id': userId,
+      'name': name,
     };
   }
 }

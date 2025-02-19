@@ -25,6 +25,10 @@ class _EstantePageState extends State<EstantePage> {
   StreamSubscription? _binderUpdateSubscription;
   bool _isLoading = true;
 
+  int _generateStyleIndex(String binderId) {
+    return binderId.hashCode.abs() % 4 + 1;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -78,7 +82,7 @@ class _EstantePageState extends State<EstantePage> {
       // Converter mapas de binders para objetos Binder
       final updatedBinders = binderMaps.map((binderData) {
         final binderId = binderData['id'].toString();
-        final styleIndex = int.parse(binderId) % 4 + 1;
+        final styleIndex = _generateStyleIndex(binderId);
         final defaultCoverAsset = 'assets/capas/capabinder$styleIndex.png';
         final defaultSpineAsset = 'assets/capas/lombadabinder$styleIndex.png';
 
@@ -390,6 +394,10 @@ class _ShelfWidgetState extends State<ShelfWidget> {
   List<Binder> _binders = [];
   StreamSubscription? _binderUpdateSubscription;
 
+  int _generateStyleIndex(String binderId) {
+    return binderId.hashCode.abs() % 4 + 1;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -419,7 +427,7 @@ class _ShelfWidgetState extends State<ShelfWidget> {
       // Converter mapas de binders para objetos Binder
       final loadedBinders = binderMaps.map((binderData) {
         final binderId = binderData['id'].toString();
-        final styleIndex = int.parse(binderId) % 4 + 1;
+        final styleIndex = _generateStyleIndex(binderId);
         final defaultCoverAsset = 'assets/capas/capabinder$styleIndex.png';
         final defaultSpineAsset = 'assets/capas/lombadabinder$styleIndex.png';
 

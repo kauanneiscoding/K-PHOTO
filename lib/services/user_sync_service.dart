@@ -67,24 +67,46 @@ class UserSyncService {
       if (supabaseBinders.isNotEmpty) {
         // Atualizar ou adicionar binders do Supabase localmente
         for (var binderData in supabaseBinders) {
-          // Verificar se o binder já existe localmente
+          // Log dos dados do Supabase
+          print('📡 Dados do Binder no Supabase:');
+          print('   ID: ${binderData['id']}');
+          print('   Nome (name): ${binderData['name']}');
+          print('   Nome (binder_name): ${binderData['binder_name']}');
+
+          // Garantir que os dados sejam do tipo correto
+          final binderId = (binderData['id'] ?? '').toString();
+          final slots = (binderData['slots'] ?? '[]').toString();
+          final coverAsset = (binderData['cover_asset'] ?? '').toString();
+          final spineAsset = (binderData['spine_asset'] ?? '').toString();
+          
+          // Priorizar 'name', com fallback para 'binder_name', e então um nome genérico
+          final binderName = (
+            binderData['name'] ?? 
+            binderData['binder_name'] ?? 
+            'Binder Sem Nome'
+          ).toString();
+
+          // Log do nome processado
+          print('🏷️ Nome do Binder Processado: $binderName');
+
+          // Verificar se o binder já existe localmente usando comparação de string
           final existingLocalBinder = localBinders.firstWhere(
-            (local) => local['id'] == binderData['id'], 
+            (local) => local['id'].toString() == binderId, 
             orElse: () => <String, dynamic>{}
           );
 
           if (existingLocalBinder.isEmpty) {
             // Adicionar novo binder se não existir
-            await _dataStorage.addBinder(
-              binderData['id'], 
-              binderData['slots'] ?? '[]'
-            );
+            final newBinderId = await _dataStorage.addNewBinder();
+            
+            // Atualizar o binder recém-criado com os dados do Supabase
+            await _dataStorage.updateBinderCovers(newBinderId, coverAsset, spineAsset);
           } else {
             // Atualizar binder existente com dados do Supabase
             await _dataStorage.updateBinderCovers(
-              binderData['id'], 
-              binderData['cover_asset'] ?? existingLocalBinder['cover_asset'],
-              binderData['spine_asset'] ?? existingLocalBinder['spine_asset']
+              binderId, 
+              coverAsset,
+              spineAsset
             );
           }
         }
@@ -99,13 +121,18 @@ class UserSyncService {
         // Sincronizar o novo binder com o Supabase
         final newBinder = await _dataStorage.getBinder(newBinderId);
         if (newBinder != null) {
+          // Log dos dados antes da sincronização
+          print('📤 Dados para Sincronização com Supabase:');
+          print('   ID: $newBinderId');
+          print('   Nome: ${newBinder['binder_name']}');
+
           await _supabase.from('binders').upsert({
             'id': newBinderId,
             'user_id': _currentUserId,
             'slots': newBinder['slots'] ?? '[]',
             'cover_asset': newBinder['cover_asset'],
             'spine_asset': newBinder['spine_asset'],
-            'binder_name': newBinder['binder_name'] ?? newBinderId,
+            'name': newBinder['binder_name'] ?? 'Novo Binder',
             'created_at': newBinder['created_at'] ?? DateTime.now().toIso8601String(),
           });
           print('☁️ Novo binder sincronizado com Supabase');
@@ -115,13 +142,18 @@ class UserSyncService {
       // Sincronizar todos os binders locais com Supabase
       final updatedLocalBinders = await _dataStorage.getAllBinders();
       for (var localBinder in updatedLocalBinders) {
+        // Log dos dados locais antes da sincronização
+        print('📤 Dados do Binder Local para Supabase:');
+        print('   ID: ${localBinder['id']}');
+        print('   Nome: ${localBinder['binder_name']}');
+
         await _supabase.from('binders').upsert({
-          'id': localBinder['id'],
+          'id': localBinder['id'].toString(),
           'user_id': _currentUserId,
           'slots': localBinder['slots'] ?? '[]',
           'cover_asset': localBinder['cover_asset'],
           'spine_asset': localBinder['spine_asset'],
-          'binder_name': localBinder['binder_name'] ?? localBinder['id'],
+          'name': localBinder['binder_name'] ?? 'Binder Sem Nome',
           'created_at': localBinder['created_at'] ?? DateTime.now().toIso8601String(),
         });
       }
@@ -149,20 +181,60 @@ class UserSyncService {
     }
   }
 
+  Future<void> verificarBinders() async {
+    try {
+      final response = await _supabase
+          .from('binders')
+          .select('*')
+          .eq('user_id', _currentUserId); // Filtra pelos binders do usuário atual
+
+      print("📌 Binders no Supabase antes de sair: $response");
+    } catch (e) {
+      print('❌ Erro ao verificar binders no Supabase: $e');
+    }
+  }
+
   Future<void> syncUserBalance() async {
     try {
       final balance = await _dataStorage.getUserCoins();
       print('💰 Saldo local - K-Coins: ${balance}');
 
-      await _supabase.from('user_coins').upsert({
-        'user_id': _currentUserId,
-        'coins': balance,
-      });
+      // Primeiro, tenta atualizar o saldo existente
+      final updateResult = await _supabase
+        .from('user_coins')
+        .update({'coins': balance})
+        .eq('user_id', _currentUserId)
+        .select();
+
+      // Se a atualização não afetou nenhuma linha, tenta inserir
+      if (updateResult.isEmpty) {
+        await _supabase.from('user_coins').upsert({
+          'user_id': _currentUserId,
+          'coins': balance,
+        });
+      }
 
       print('☁️ Saldo sincronizado com Supabase');
-    } catch (e, stackTrace) {
+    } catch (e) {
       print('❌ Erro ao sincronizar saldo: $e');
-      print('Detalhes do erro: $stackTrace');
+      
+      // Tenta recuperar o saldo existente do Supabase
+      try {
+        final existingBalance = await _supabase
+          .from('user_coins')
+          .select('coins')
+          .eq('user_id', _currentUserId)
+          .single();
+        
+        // Se conseguir recuperar, usa o saldo do Supabase
+        if (existingBalance != null) {
+          final supabaseCoins = existingBalance['coins'] as int;
+          await _dataStorage.updateKCoins(supabaseCoins);
+          print('📊 Saldo atualizado com valor do Supabase: $supabaseCoins');
+        }
+      } catch (recoveryError) {
+        print('❌ Erro ao recuperar saldo do Supabase: $recoveryError');
+      }
     }
   }
 
