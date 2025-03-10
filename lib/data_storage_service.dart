@@ -587,7 +587,7 @@ class DataStorageService {
     }
   }
 
-  Future<List<Map<String, String>>> getAvailablePhotocards() async {
+    Future<List<Map<String, String>>> getAvailablePhotocards() async {
     final db = await database;
     
     if (_currentUserId == null) {
@@ -600,13 +600,23 @@ class DataStorageService {
       whereArgs: [_currentUserId, 'backpack']
     );
 
-    // Convert dynamic results to Map<String, String>
-    return results.map((result) => {
-      'id': result['id'].toString(),
-      'image_path': result['image_path'] as String,
-      'instance_id': result['instance_id'] as String,
-    }).toList();
+    // Agrupar por image_path para evitar duplicatas na visualização
+    final Map<String, Map<String, String>> uniqueCards = {};
+    
+    for (var result in results) {
+      final imagePath = result['image_path'] as String;
+      if (!uniqueCards.containsKey(imagePath)) {
+        uniqueCards[imagePath] = {
+          'id': result['id'].toString(),
+          'image_path': imagePath,
+          'instance_id': result['instance_id'] as String,
+        };
+      }
+    }
+
+    return uniqueCards.values.toList();
   }
+
 
   Future<void> deductUserCoins(int amount) async {
     final db = await database;
