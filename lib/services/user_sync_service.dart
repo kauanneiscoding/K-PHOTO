@@ -126,13 +126,19 @@ class UserSyncService {
           print('   ID: $newBinderId');
           print('   Nome: ${newBinder['binder_name']}');
 
+          // Adicionar log para verificar o valor de binder_name antes de enviar
+          print('binder_name antes de enviar para o Supabase: ${newBinder['binder_name']}');
+
+          // Substituir null com um valor padrão
+          String binderName = newBinder['binder_name'] ?? 'Nome Padrão';  // Caso binder_name seja nulo, usaremos 'Nome Padrão'
+
           await _supabase.from('binders').upsert({
             'id': newBinderId,
             'user_id': _currentUserId,
             'slots': newBinder['slots'] ?? '[]',
             'cover_asset': newBinder['cover_asset'],
             'spine_asset': newBinder['spine_asset'],
-            'name': newBinder['binder_name'] ?? 'Novo Binder',
+            'name': binderName,  // Usando binderName agora, com valor garantido
             'created_at': newBinder['created_at'] ?? DateTime.now().toIso8601String(),
           });
           print('☁️ Novo binder sincronizado com Supabase');
@@ -147,13 +153,19 @@ class UserSyncService {
         print('   ID: ${localBinder['id']}');
         print('   Nome: ${localBinder['binder_name']}');
 
+        // Adicionar log para verificar o valor de binder_name antes de enviar
+        print('binder_name antes de enviar para o Supabase: ${localBinder['binder_name']}');
+
+        // Substituir null com um valor padrão
+        String binderName = localBinder['binder_name'] ?? 'Nome Padrão';  // Caso binder_name seja nulo, usaremos 'Nome Padrão'
+
         await _supabase.from('binders').upsert({
           'id': localBinder['id'].toString(),
           'user_id': _currentUserId,
           'slots': localBinder['slots'] ?? '[]',
           'cover_asset': localBinder['cover_asset'],
           'spine_asset': localBinder['spine_asset'],
-          'name': localBinder['binder_name'] ?? 'Binder Sem Nome',
+          'name': binderName,  // Usando binderName agora, com valor garantido
           'created_at': localBinder['created_at'] ?? DateTime.now().toIso8601String(),
         });
       }
@@ -178,6 +190,37 @@ class UserSyncService {
           print('❌ Falha crítica ao criar binder de emergência: $fallbackError');
         }
       }
+    }
+  }
+
+  Future<void> updateBinderCovers(String binderId, String newCover, String newSpine) async {
+    try {
+      // Buscar os dados do binder no Supabase
+      final binderData = await _supabase
+          .from('binders')
+          .select('name')
+          .eq('id', binderId)
+          .maybeSingle();  // Usa maybeSingle() para evitar erro caso não haja resultado
+
+      // Se o nome não existir, definir um valor padrão
+      final binderName = binderData != null && binderData['name'] != null
+          ? binderData['name']
+          : "Binder Padrão";  // Nome padrão para evitar erro
+
+      // Adicionar log antes da atualização para verificar o nome do binder
+      print('Nome do Binder a ser enviado: $binderName');
+
+      // Agora, realizar o update garantindo que name nunca será null
+      await _supabase.from('binders').update({
+        'name': binderName,  // Sempre enviando um nome válido
+        'cover_asset': newCover,
+        'spine_asset': newSpine,
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', binderId);
+
+      print('✅ Binder atualizado com sucesso: $binderId');
+    } catch (e) {
+      print('❌ Erro ao atualizar binder: $e');
     }
   }
 
