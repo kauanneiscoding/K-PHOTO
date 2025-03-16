@@ -73,79 +73,83 @@ class _ProfilePageState extends State<ProfilePage> {
         Container(
           width: 120,
           height: 120,
-          child: GestureDetector(
-            onTap: _pickImage,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                if (selectedFrame == 0)
-                  // Imagem circular sem moldura, mas com mesmo tamanho
-                  Container(
-                    width: 110, // Mesmo tamanho da imagem com moldura
-                    height: 110, // Mesmo tamanho da imagem com moldura
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      image: DecorationImage(
-                        image: profileImagePath != null
-                            ? FileImage(File(profileImagePath!))
-                                as ImageProvider
-                            : AssetImage('assets/default_profile.png'),
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                  )
-                else
-                  // Imagem com moldura
-                  Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      ClipPath(
-                        clipper: MolduraClipper(frames[selectedFrame]),
-                        child: Container(
-                          width: 110,
-                          height: 110,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            image: DecorationImage(
-                              image: profileImagePath != null
-                                  ? FileImage(File(profileImagePath!))
-                                      as ImageProvider
-                                  : AssetImage('assets/default_profile.png'),
-                              fit: BoxFit.cover,
-                            ),
+          child: Stack(
+            children: [
+              GestureDetector(
+                onTap: _pickImage,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    if (selectedFrame == 0)
+                      // Imagem circular sem moldura, mas com mesmo tamanho
+                      Container(
+                        width: 110, // Mesmo tamanho da imagem com moldura
+                        height: 110, // Mesmo tamanho da imagem com moldura
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          image: DecorationImage(
+                            image: profileImagePath != null
+                                ? FileImage(File(profileImagePath!))
+                                    as ImageProvider
+                                : AssetImage('assets/default_profile.png'),
+                            fit: BoxFit.cover,
                           ),
                         ),
+                      )
+                    else
+                      // Imagem com moldura
+                      Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          ClipPath(
+                            clipper: MolduraClipper(frames[selectedFrame]),
+                            child: Container(
+                              width: 110,
+                              height: 110,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                image: DecorationImage(
+                                  image: profileImagePath != null
+                                      ? FileImage(File(profileImagePath!))
+                                          as ImageProvider
+                                      : AssetImage('assets/default_profile.png'),
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                            ),
+                          ),
+                          Image.asset(
+                            frames[selectedFrame],
+                            width: 120,
+                            height: 120,
+                            fit: BoxFit.contain,
+                          ),
+                        ],
                       ),
-                      Image.asset(
-                        frames[selectedFrame],
-                        width: 120,
-                        height: 120,
-                        fit: BoxFit.contain,
-                      ),
-                    ],
-                  ),
-              ],
-            ),
-          ),
-        ),
-        Positioned(
-          bottom: 0,
-          right: 0,
-          child: Container(
-            padding: EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              color: Colors.pink[200],
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: Colors.white,
-                width: 2,
+                  ],
+                ),
               ),
-            ),
-            child: Icon(
-              Icons.camera_alt,
-              color: Colors.white,
-              size: 20,
-            ),
+              Positioned(
+                bottom: 0,
+                right: 0,
+                child: Container(
+                  padding: EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.pink[200],
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.white,
+                      width: 2,
+                    ),
+                  ),
+                  child: Icon(
+                    Icons.camera_alt,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -388,78 +392,86 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Perfil'),
-        actions: [
-          IconButton(
-            icon: Icon(Icons.logout),
-            onPressed: () async {
-              try {
-                // Usar o serviço do Supabase para fazer logout
-                final supabaseService = SupabaseService();
-                await supabaseService.signOut();
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Container(
+                    width: double.infinity,
+                    height: 250,
+                    decoration: BoxDecoration(
+                      color: Colors.pink[100],
+                      borderRadius: BorderRadius.only(
+                        bottomLeft: Radius.circular(30),
+                        bottomRight: Radius.circular(30),
+                      ),
+                    ),
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Positioned(
+                          top: 10,
+                          right: 10,
+                          child: IconButton(
+                            icon: Icon(Icons.logout),
+                            onPressed: () async {
+                              try {
+                                // Usar o serviço do Supabase para fazer logout
+                                final supabaseService = SupabaseService();
+                                await supabaseService.signOut();
 
-                // Navegar para a tela de login, removendo todas as rotas anteriores
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (context) => LoginPage()), 
-                  (Route<dynamic> route) => false
-                );
-              } catch (e) {
-                // Mostrar mensagem de erro se o logout falhar
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Erro ao fazer logout: $e'),
-                    backgroundColor: Colors.red,
-                  )
-                );
-              }
-            },
+                                // Navegar para a tela de login, removendo todas as rotas anteriores
+                                Navigator.of(context).pushAndRemoveUntil(
+                                  MaterialPageRoute(builder: (context) => LoginPage()), 
+                                  (Route<dynamic> route) => false
+                                );
+                              } catch (e) {
+                                // Mostrar mensagem de erro se o logout falhar
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Erro ao fazer logout: $e'),
+                                    backgroundColor: Colors.red,
+                                  )
+                                );
+                              }
+                            },
+                          ),
+                        ),
+                        Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            _buildProfilePicture(),
+                            SizedBox(height: 10),
+                            Text(
+                              '@username',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                            SizedBox(height: 10),
+                            TextButton(
+                              onPressed: _showFrameSelector,
+                              child: Text(
+                                'Trocar moldura',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
-      ),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Container(
-                height: 250,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: Colors.pink[100],
-                  borderRadius: BorderRadius.only(
-                    bottomLeft: Radius.circular(30),
-                    bottomRight: Radius.circular(30),
-                  ),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _buildProfilePicture(),
-                    SizedBox(height: 10),
-                    Text(
-                      '@username',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                    SizedBox(height: 10),
-                    TextButton(
-                      onPressed: _showFrameSelector,
-                      child: Text(
-                        'Trocar moldura',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
