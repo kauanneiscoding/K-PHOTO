@@ -884,15 +884,13 @@ class DataStorageService {
 
       // Sincronizar com Supabase
       try {
-        await Supabase.instance.client
-          .from('binders')
-          .upsert({
-            'id': binderId,
-            'user_id': _currentUserId,
-            'cover_asset': cover,
-            'spine_asset': spine,
-            'updated_at': DateTime.now().toIso8601String(),
-          });
+        await _supabaseClient!.from('binders').upsert({
+          'id': binderId,
+          'user_id': _currentUserId,
+          'cover_asset': cover,
+          'spine_asset': spine,
+          'updated_at': DateTime.now().toIso8601String(),
+        });
         print('Capas do binder sincronizadas com Supabase');
       } catch (supabaseError) {
         print('Erro ao sincronizar capas com Supabase: $supabaseError');
@@ -1253,56 +1251,38 @@ class DataStorageService {
   }
 
   Future<List<Map<String, dynamic>>> getAllBinders() async {
-    final db = await database;
-    
     if (_currentUserId == null) {
       throw Exception('Nenhum usuário definido');
     }
 
-    // Consulta para buscar binders do usuário atual
-    final binders = await db.query(
-      'binders', 
-      where: 'user_id = ?', 
-      whereArgs: [_currentUserId],
-      orderBy: 'created_at ASC'  // Ordenar por data de criação
-    );
-
-    // Log detalhado para rastrear binders
-    print('🔍 Binders encontrados: ${binders.length}');
-    for (var binder in binders) {
-      print('📋 Binder: ${binder['id']}, Nome: ${binder['name'] ?? binder['binder_name']}, Criado em: ${binder['created_at']}');
-    }
-
-    // Se não existem binders, verificar se realmente não há nenhum
-    if (binders.isEmpty) {
-      print('⚠️ Nenhum binder encontrado para o usuário atual.');
+    try {
+      print('📡 Buscando binders diretamente do Supabase...');
       
-      // Verificação adicional para evitar criação desnecessária
-      final totalBinders = Sqflite.firstIntValue(
-        await db.rawQuery('SELECT COUNT(*) FROM binders')
-      ) ?? 0;
+      final response = await _supabaseClient!
+          .from('binders')
+          .select()
+          .eq('user_id', _currentUserId!)
+          .order('created_at');
 
-      if (totalBinders == 0) {
-        print('🚨 Nenhum binder no banco de dados. Criando binder inicial.');
-        
-        // Criar binder inicial apenas uma vez
-        final initialBinderId = await addNewBinder();
-        
-        // Buscar o binder recém-criado
-        final initialBinders = await db.query(
-          'binders', 
-          where: 'id = ? AND user_id = ?', 
-          whereArgs: [initialBinderId, _currentUserId]
-        );
-        
-        return initialBinders;
-      } else {
-        print('❗ Há binders no banco, mas nenhum para o usuário atual.');
-        return [];
+      final List<Map<String, dynamic>> binders = List<Map<String, dynamic>>.from(response);
+
+      print('📦 Binders encontrados: ${binders.length}');
+      for (final binder in binders) {
+        print('🧾 Binder ID: ${binder['id']} - Nome: ${binder['name']}');
       }
-    }
 
-    return binders;
+      // Se não houver binders, cria o primeiro automaticamente
+      if (binders.isEmpty) {
+        print('🆕 Nenhum binder encontrado, criando o primeiro binder...');
+        final newBinderId = await addNewBinder();
+        return await getAllBinders(); // Recursivamente tenta de novo
+      }
+
+      return binders;
+    } catch (e) {
+      print('❌ Erro ao buscar binders do Supabase: $e');
+      return [];
+    }
   }
 
   Future<void> preventBinderDuplication() async {
@@ -1443,10 +1423,7 @@ class DataStorageService {
     final db = await database;
     
     try {
-      // Garantir que o binderId seja uma string
       final safeBinderId = binderId.toString();
-      
-      // Determine cover and spine assets based on the binder ID
       final styleIndex = (safeBinderId.hashCode % 4) + 1;
       final coverAsset = 'assets/capas/capabinder$styleIndex.png';
       final spineAsset = 'assets/capas/lombadabinder$styleIndex.png';
@@ -1459,15 +1436,13 @@ class DataStorageService {
       );
 
       if (existingBinder.isNotEmpty) {
-        // Update existing binder if cover or spine assets are missing
         await db.update(
           'binders', 
           {
             'slots': slots ?? '[]',
             'cover_asset': coverAsset,
             'spine_asset': spineAsset,
-            'binder_name': safeBinderId,  // Explicitly set binder_name
-            'name': safeBinderId,  // Update 'name' column
+            'name': safeBinderId,  // Use 'name' instead of 'binder_name'
             'updated_at': DateTime.now().toIso8601String(),
           },
           where: 'id = ? AND user_id = ?',
@@ -1475,17 +1450,34 @@ class DataStorageService {
         );
       } else {
         // Insert new binder
-        await db.insert('binders', {
-          'id': safeBinderId,
-          'user_id': _currentUserId,
-          'slots': slots ?? '[]',
-          'cover_asset': coverAsset,
-          'spine_asset': spineAsset,
-          'binder_name': safeBinderId,
-          'name': safeBinderId,  // Add 'name' column
-          'created_at': DateTime.now().toIso8601String(),
-          'is_open': 0,
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
+        try {
+          final response = await _supabaseClient!.from('binders').upsert({
+            'id': safeBinderId,
+            'user_id': _currentUserId,
+            'slots': slots ?? '[]',
+            'cover_asset': coverAsset,
+            'spine_asset': spineAsset,
+            'name': safeBinderId,  // Use 'name' instead of 'binder_name'
+            'created_at': DateTime.now().toIso8601String(),
+            'is_open': 0,
+          });
+
+          // Verifique se a resposta não é nula antes de acessar response.data
+          if (response == null) {
+            print('Erro: resposta nula ao inserir binder no Supabase.');
+            return;
+          }
+
+          print('Resposta da inserção: ${response.data}'); // Verifique a resposta da inserção
+
+          if (response.data == null) {
+            print('Erro ao inserir binder: ${response.status}');
+            return;
+          }
+        } catch (e) {
+          print('Erro ao inserir binder no Supabase: $e');
+          rethrow;
+        }
       }
 
       print('Binder processed. ID: $safeBinderId, Cover: $coverAsset, Spine: $spineAsset');
@@ -1626,11 +1618,7 @@ class DataStorageService {
       print('   Índice de Estilo: $styleIndex');
 
       // Verificar se o binder já existe antes de inserir
-      final existingBinderCheck = await db.query(
-        'binders', 
-        where: 'id = ? AND user_id = ?', 
-        whereArgs: [newBinderId, _currentUserId]
-      );
+      final existingBinderCheck = await _supabaseClient!.from('binders').select().eq('id', newBinderId).eq('user_id', _currentUserId);
 
       if (existingBinderCheck.isNotEmpty) {
         print('❌ Binder com este ID já existe. Gerando novo ID.');
@@ -1638,17 +1626,34 @@ class DataStorageService {
       }
 
       // Inserir novo binder
-      await db.insert('binders', {
-        'id': newBinderId,
-        'user_id': _currentUserId,
-        'slots': '[]',
-        'cover_asset': coverAsset,
-        'spine_asset': spineAsset,
-        'name': binderName,  // Usar nome garantido
-        'binder_name': binderName,  // Manter compatibilidade
-        'created_at': DateTime.now().toIso8601String(),
-        'is_open': 0,
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      try {
+        final response = await _supabaseClient!.from('binders').upsert({
+          'id': newBinderId,
+          'user_id': _currentUserId,
+          'slots': '[]',
+          'cover_asset': coverAsset,
+          'spine_asset': spineAsset,
+          'name': binderName,  // Use 'name' instead of 'binder_name'
+          'created_at': DateTime.now().toIso8601String(),
+          'is_open': 0,
+        });
+
+        // Verifique se a resposta não é nula antes de acessar response.data
+        if (response == null) {
+          print('Erro: resposta nula ao inserir binder no Supabase.');
+          return '';
+        }
+
+        print('Resposta da inserção: ${response.data}'); // Verifique a resposta da inserção
+
+        if (response.data == null) {
+          print('Erro ao inserir binder: ${response.status}');
+          return '';
+        }
+      } catch (e) {
+        print('Erro ao inserir binder no Supabase: $e');
+        rethrow;
+      }
 
       print('✅ Novo Binder Adicionado: ');
       print('ID: $newBinderId');
@@ -1713,6 +1718,125 @@ class DataStorageService {
     print('✅ Usuário Atual Validado:');
     print('   ID do Usuário: $_currentUserId');
     print('   Email do Usuário: ${Supabase.instance.client.auth.currentUser?.email ?? "N/A"}');
+  }
+
+  Future<void> ensureBinderExists() async {
+    try {
+      final response = await _supabaseClient!
+          .from('binders')
+          .select()
+          .eq('user_id', _currentUserId)
+          .execute();
+
+      print('Resposta da consulta: ${response.data}'); // Veja o que realmente está retornando
+
+      // Verifique se a resposta é uma lista
+      if (response.data is List) {
+          List<dynamic> binders = response.data;
+          print('Binders encontrados: ${binders.length}');
+
+          if (binders.isEmpty) {
+              print('⚠️ Nenhum binder encontrado. Criando um novo.');
+              await _createNewBinder();
+          } else {
+              print('✅ Binders já existem, carregando normalmente.');
+          }
+      } else {
+          print('Erro: resposta inesperada do Supabase.');
+      }
+    } catch (e) {
+      print('Erro ao sincronizar binders: $e');
+    }
+  }
+
+Future<void> syncBinders() async {
+  try {
+    final response = await _supabaseClient!
+        .from('binders')
+        .select()
+        .eq('user_id', _currentUserId)
+        .execute();
+
+    if (response.data == null) {
+      print('❌ Erro ao obter binders: resposta nula.');
+      return;
+    }
+
+    List<dynamic> binders = response.data;
+    print('🔍 Binders encontrados: ${binders.length}');
+
+    if (binders.isEmpty) {
+      print('⚠️ Nenhum binder encontrado. Verificando novamente antes de criar.');
+      
+      // Fazer uma segunda verificação antes de criar
+      await Future.delayed(Duration(seconds: 1)); // Pequeno delay para evitar race condition
+      final doubleCheck = await _supabaseClient!
+          .from('binders')
+          .select()
+          .eq('user_id', _currentUserId)
+          .execute();
+
+      if (doubleCheck.data != null && doubleCheck.data.isNotEmpty) {
+        print('✅ Binder detectado na segunda verificação, cancelando criação.');
+        return;
+      }
+
+      print('🚨 Nenhum binder encontrado após verificação. Criando um novo.');
+      await _createNewBinder();
+    }
+  } catch (e) {
+    print('❌ Erro ao sincronizar binders: $e');
+  }
+}
+
+
+
+  Future<void> _createNewBinder() async {
+    try {
+      // Verifique se o binder já existe para o usuário
+      final existingBindersResponse = await _supabaseClient!
+          .from('binders')
+          .select()
+          .eq('user_id', _currentUserId)
+          .execute();
+
+      // Verifique se a resposta é bem-sucedida
+      if (existingBindersResponse.data == null) {
+        print('Erro ao verificar binders existentes: ${existingBindersResponse.status}');
+        return;
+      }
+
+      // Se não houver binders existentes, crie um novo
+      if (existingBindersResponse.data.isEmpty) {
+        final binderId = generateUniqueBinderId(); // Gere um ID único para o binder
+        final response = await _supabaseClient!.from('binders').insert({
+          'id': binderId,
+          'name': 'Primeiro Binder',
+          'user_id': _currentUserId,
+          'cover_asset': 'assets/capas/capabinder2.png', // ou qualquer outro
+        }).execute();
+
+        // Verifique se a resposta não é nula antes de acessar response.data
+        if (response == null) {
+          print('Erro: resposta nula ao inserir binder no Supabase.');
+          return;
+        }
+
+        print('Resposta da inserção: ${response.data}'); // Verifique a resposta da inserção
+
+        // Verifique se a resposta da inserção é bem-sucedida
+        if (response.data == null) {
+          print('Erro ao inserir binder: ${response.status}');
+          return;
+        }
+
+        print('Novo binder criado com sucesso!');
+      } else {
+        print('Já existem binders para esse usuário.');
+      }
+    } catch (e) {
+      print('Erro ao criar novo binder: $e');
+    }
   }
 }
 
