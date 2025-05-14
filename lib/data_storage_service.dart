@@ -16,18 +16,13 @@ class StoreCard {
 }
 
 class DataStorageService {
-  static final DataStorageService _instance = DataStorageService._internal();
-  
-  factory DataStorageService([SupabaseClient? supabaseClient]) {
-    if (supabaseClient != null) {
-      _instance._supabaseClient = supabaseClient;
-    }
-    return _instance;
+  final SupabaseClient _supabaseClient;
+  String? _currentUserId;
+
+  DataStorageService([SupabaseClient? supabaseClient]) 
+      : _supabaseClient = supabaseClient ?? Supabase.instance.client {
+    _currentUserId = _supabaseClient.auth.currentUser?.id;
   }
-
-  DataStorageService._internal();
-
-  SupabaseClient? _supabaseClient;
 
   // Constantes
   static const int MAX_SHARED_PILE_CARDS = 10;
@@ -36,7 +31,6 @@ class DataStorageService {
   bool _isExecuting = false;
 
   Database? _database;
-  String? _currentUserId;
 
   // Método para definir o ID do usuário atual
   void setCurrentUser(String userId) {
@@ -247,74 +241,34 @@ class DataStorageService {
   }
 
   Future<void> savePhotocardPosition(
-      String binderId, int pageNumber, int slotIndex, String? imagePath,
-      {String? instanceId}) async {
-    final db = await database;
-    try {
-      await db.transaction((txn) async {
-        await txn.delete(
-          'inventory',
-          where:
-              "location = 'binder' AND binder_id = ? AND slot_index = ? AND page_number = ? AND user_id = ?",
-          whereArgs: [binderId, slotIndex, pageNumber, _currentUserId],
-        );
+    String binderId,
+    int pageNumber,
+    int slotIndex,
+    String? imagePath, {
+    required String instanceId,
+  }) async {
+    if (_currentUserId == null || imagePath == null) return;
 
-        if (imagePath != null) {
-          if (instanceId == null) {
-            instanceId = await addToInventory(
-              imagePath,
-              'binder',
-              binderId: binderId,
-              slotIndex: slotIndex,
-            );
-          }
+    final timestamp = DateTime.now().toIso8601String();
 
-          await txn.update(
-            'inventory',
-            {
-              'location': 'binder',
-              'binder_id': binderId,
-              'slot_index': slotIndex,
-              'page_number': pageNumber,
-              'created_at': DateTime.now().toIso8601String(),
-              'user_id': _currentUserId
-            },
-            where: 'instance_id = ?',
-            whereArgs: [instanceId],
-          );
-
-          print(
-              'Photocard salvo no binder: $imagePath (slot: $slotIndex, página: $pageNumber, instanceId: $instanceId)');
-        }
-      });
-    } catch (e) {
-      print('Erro ao salvar posição do photocard: $e');
-      rethrow;
-    }
+    await _supabaseClient!.from('inventory').update({
+      'location': 'binder',
+      'binder_id': binderId,
+      'page_number': pageNumber,
+      'slot_index': slotIndex,
+      'updated_at': timestamp,
+    }).eq('user_id', _currentUserId).eq('instance_id', instanceId);
   }
 
-  Future<List<Map<String, dynamic>>> loadBinderPhotocards(
-      String binderId) async {
-    final db = await database;
-    try {
-      final results = await db.query(
-        'inventory',
-        where: "location = 'binder' AND binder_id = ? AND user_id = ?",
-        whereArgs: [binderId, _currentUserId],
-        orderBy: 'page_number ASC, slot_index ASC',
-      );
-
-      print('Carregando binder $binderId: ${results.length} cards encontrados');
-      for (var card in results) {
-        print(
-            'Página ${card['page_number']}, Slot ${card['slot_index']}: ${card['image_path']} (${card['instance_id']})');
-      }
-
-      return results;
-    } catch (e) {
-      print('Erro ao carregar slots do binder: $e');
-      return [];
-    }
+  Future<List<Map<String, dynamic>>> loadBinderPhotocards(String binderId) async {
+    if (_currentUserId == null) return [];
+    final response = await _supabaseClient
+        .from('inventory')
+        .select()
+        .eq('user_id', _currentUserId)
+        .eq('binder_id', binderId)
+        .eq('location', 'binder');
+    return List<Map<String, dynamic>>.from(response);
   }
 
   Future<bool> isPhotocardInUse(String instanceId) async {
@@ -372,44 +326,47 @@ class DataStorageService {
   }
 
   Future<String> addToInventory(String imagePath, String location,
-      {String? binderId, int? slotIndex}) async {
-    final db = await database;
-    
-    // Gerar um instance_id único
-    final instanceId = await generateUniqueId(imagePath);
+      {String? binderId, int? slotIndex, int? pageNumber}) async {
+    if (_currentUserId == null) throw Exception('Usuário não autenticado');
+    final timestamp = DateTime.now().toIso8601String();
+    final instanceId = DateTime.now().millisecondsSinceEpoch.toString();
 
-    final id = await db.insert(
-      'inventory',
-      {
-        'instance_id': instanceId,
-        'image_path': imagePath,
-        'location': location,
-        'binder_id': binderId,
-        'slot_index': slotIndex,
-        'created_at': DateTime.now().toIso8601String(),
-        'user_id': _currentUserId
-      },
-    );
-    
+    await _supabaseClient.from('inventory').insert({
+      'instance_id': instanceId,
+      'user_id': _currentUserId,
+      'image_path': imagePath,
+      'location': location,
+      'binder_id': binderId,
+      'slot_index': slotIndex,
+      'page_number': pageNumber,
+      'created_at': timestamp,
+      'updated_at': timestamp,
+    });
+
     return instanceId;
   }
 
   Future<List<Map<String, dynamic>>> getSharedPile() async {
-    final db = await database;
-    return await db.query(
-      'inventory', 
-      where: 'user_id = ? AND location = ?', 
-      whereArgs: [_currentUserId, 'shared_pile']
-    );
+    if (_currentUserId == null) return [];
+    final response = await _supabaseClient
+        .from('inventory')
+        .select()
+        .eq('user_id', _currentUserId)
+        .eq('location', 'shared_pile');
+    return List<Map<String, dynamic>>.from(response);
   }
 
-  Future<List<Map<String, dynamic>>> getBackpackCards() async {
+  Future<List<Map<String, String>>> getBackpackCards() async {
     final db = await database;
-    return await db.query(
+    final results = await db.query(
       'inventory', 
       where: 'user_id = ? AND location = ?', 
       whereArgs: [_currentUserId, 'backpack']
     );
+  
+    return results.map((map) => 
+      map.map((key, value) => MapEntry(key, value?.toString() ?? ''))
+    ).toList();
   }
 
   Future<void> restoreFullState() async {
@@ -542,78 +499,68 @@ class DataStorageService {
 
   Future<void> movePhotocardToPile(String imagePath,
       {String? instanceId}) async {
-    final db = await database;
+    if (_currentUserId == null) return;
+
     try {
-      await db.transaction((txn) async {
-        // Gera um novo ID único se não foi fornecido
-        final newInstanceId =
-            instanceId ?? DateTime.now().millisecondsSinceEpoch.toString();
+      // Verifica se há espaço no monte
+      final response = await _supabaseClient
+          .from('inventory')
+          .select('count')
+          .eq('location', 'shared_pile')
+          .eq('user_id', _currentUserId)
+          .single();
 
-        // Verifica se há espaço no monte
-        final sharedPileCount = Sqflite.firstIntValue(await txn.rawQuery(
-            "SELECT COUNT(*) FROM inventory WHERE location = 'shared_pile' AND user_id = ?", [_currentUserId]));
+      final sharedPileCount = response['count'] as int;
+      if (sharedPileCount >= MAX_SHARED_PILE_CARDS) {
+        // Se o monte estiver cheio, move o card mais antigo para a mochila
+        final oldestCard = await _supabaseClient
+            .from('inventory')
+            .select()
+            .eq('location', 'shared_pile')
+            .eq('user_id', _currentUserId)
+            .order('created_at')
+            .limit(1)
+            .single();
 
-        if (sharedPileCount! >= MAX_SHARED_PILE_CARDS) {
-          // Se o monte estiver cheio, move um card do monte para a mochila
-          await txn.rawUpdate('''
-            UPDATE inventory 
-            SET location = 'backpack',
-                created_at = ?,
-                binder_id = NULL,
-                slot_index = NULL
-            WHERE location = 'shared_pile' AND user_id = ?
-            ORDER BY created_at ASC
-            LIMIT 1
-          ''', [DateTime.now().toIso8601String(), _currentUserId]);
-        }
+        await updateCardLocation(oldestCard['instance_id'], 'backpack');
+      }
 
-        // Adiciona o novo card ao monte com ID único
-        await txn.insert(
-          'inventory',
-          {
-            'instance_id': newInstanceId,
-            'image_path': imagePath,
-            'location': 'shared_pile',
-            'created_at': DateTime.now().toIso8601String(),
-            'user_id': _currentUserId
-          },
-        );
-
-        print(
-            'Photocard movido para o monte: $imagePath (instanceId: $newInstanceId)');
+      // Adiciona o novo card ao monte
+      final newInstanceId = instanceId ?? DateTime.now().millisecondsSinceEpoch.toString();
+      await _supabaseClient.from('inventory').insert({
+        'instance_id': newInstanceId,
+        'image_path': imagePath,
+        'location': 'shared_pile',
+        'created_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+        'user_id': _currentUserId
       });
+
+      print('Photocard movido para o monte: $imagePath (instanceId: $newInstanceId)');
     } catch (e) {
       print('Erro ao mover photocard para o monte: $e');
+      rethrow;
     }
   }
 
-    Future<List<Map<String, String>>> getAvailablePhotocards() async {
-    final db = await database;
-    
-    if (_currentUserId == null) {
-      return [];
-    }
+  Future<List<Map<String, String>>> getAvailablePhotocards() async {
+    if (_currentUserId == null) return [];
+    final response = await _supabaseClient
+        .from('inventory')
+        .select('image_path, instance_id')
+        .eq('user_id', _currentUserId)
+        .eq('location', 'backpack');
 
-    final results = await db.query(
-      'inventory', 
-      where: 'user_id = ? AND location = ?', 
-      whereArgs: [_currentUserId, 'backpack']
-    );
-
-    // Agrupar por image_path para evitar duplicatas na visualização
-    final Map<String, Map<String, String>> uniqueCards = {};
-    
-    for (var result in results) {
-      final imagePath = result['image_path'] as String;
+    final uniqueCards = <String, Map<String, String>>{};
+    for (final card in response) {
+      final imagePath = card['image_path'] as String;
       if (!uniqueCards.containsKey(imagePath)) {
         uniqueCards[imagePath] = {
-          'id': result['id'].toString(),
           'image_path': imagePath,
-          'instance_id': result['instance_id'] as String,
+          'instance_id': card['instance_id'] as String,
         };
       }
     }
-
     return uniqueCards.values.toList();
   }
 
@@ -639,97 +586,62 @@ class DataStorageService {
     return balance['k_coins'] ?? 300;
   }
 
-  Future<List<String>> getSharedPileCards() async {
-    final db = await database;
+  Future<List<Map<String, dynamic>>> getSharedPileCards() async {
+    if (_currentUserId == null) return [];
+
     try {
-      final results = await db.query('inventory', where: 'user_id = ? AND location = ?', whereArgs: [_currentUserId, 'shared_pile']);
-      final cards = results.map((row) => row['image_path'] as String).toList();
-      print('Cards no monte: ${cards.length}');
-      return cards;
+      final result = await _supabaseClient!
+          .from('inventory')
+          .select()
+          .eq('user_id', _currentUserId)
+          .eq('location', 'shared_pile');
+
+      print('🗃️ Monte compartilhado carregado: ${result.length} cards');
+      return List<Map<String, dynamic>>.from(result);
     } catch (e) {
-      print('Erro ao carregar monte: $e');
+      print('❌ Erro ao carregar monte compartilhado: $e');
       return [];
     }
   }
 
   Future<Map<String, List<String>>> getBackpackPhotocardsCount() async {
-    final db = await database;
-    try {
-      // Log current user ID
-      print('🔍 Buscando photocards para usuário: $_currentUserId');
+    if (_currentUserId == null) return {};
+    final response = await _supabaseClient
+        .from('inventory')
+        .select('image_path, instance_id')
+        .eq('user_id', _currentUserId)
+        .eq('location', 'backpack');
 
-      final results = await db.query(
-        'inventory',
-        where: "location = 'backpack' AND user_id = ?",
-        whereArgs: [_currentUserId],
-        columns: ['image_path', 'instance_id', 'location'],
-      );
-
-      // Log raw query results
-      print('📊 Resultados da consulta:');
-      print('Total de registros encontrados: ${results.length}');
-      for (var result in results) {
-        print('🖼️ Registro:');
-        result.forEach((key, value) {
-          print('   $key: $value');
-        });
-      }
-
-      // Mapa que guarda o caminho da imagem e a lista de IDs únicos
-      Map<String, List<String>> cardCount = {};
-
-      for (var row in results) {
-        String imagePath = row['image_path'] as String;
-        String instanceId = row['instance_id'] as String;
-
-        if (!cardCount.containsKey(imagePath)) {
-          cardCount[imagePath] = [];
-        }
-
-        // Adiciona o ID à lista de IDs daquela imagem
-        cardCount[imagePath]!.add(instanceId);
-      }
-
-      // Log detailed card counts
-      print('🔢 Contagem de cards na mochila:');
-      cardCount.forEach((imagePath, instances) {
-        print('📊 Imagem: $imagePath');
-        print('   Contagem: ${instances.length}');
-        print('   IDs de instância: ${instances.join(", ")}');
-      });
-
-      return cardCount;
-    } catch (e) {
-      print('❌ Erro ao contar photocards na mochila: $e');
-      return {};
+    final Map<String, List<String>> cardCount = {};
+    for (final row in response) {
+      final imagePath = row['image_path'] as String;
+      final instanceId = row['instance_id'] as String;
+      cardCount.putIfAbsent(imagePath, () => []);
+      cardCount[imagePath]!.add(instanceId);
     }
+    return cardCount;
   }
 
-  Future<void> updateCardLocation(String? instanceId, String newLocation,
-      {String? binderId, int? slotIndex, int? pageNumber}) async {
-    if (instanceId == null || _isExecuting) return;
-    _isExecuting = true;
+  Future<void> updateCardLocation(
+    String instanceId,
+    String newLocation, {
+    String? binderId,
+    int? slotIndex,
+    int? pageNumber,
+  }) async {
+    if (_currentUserId == null || instanceId.isEmpty) return;
 
-    final db = await database;
-    try {
-      final timestamp = DateTime.now().toIso8601String();
-      await db.update(
-        'inventory',
-        {
+    await _supabaseClient
+        .from('inventory')
+        .update({
           'location': newLocation,
           'binder_id': binderId,
           'slot_index': slotIndex,
           'page_number': pageNumber,
-          'created_at': timestamp,
-        },
-        where: 'instance_id = ? AND user_id = ?',
-        whereArgs: [instanceId, _currentUserId],
-      );
-    } catch (e) {
-      print('Erro ao atualizar localização do card: $e');
-    } finally {
-      _isExecuting = false;
-    }
+          'updated_at': DateTime.now().toIso8601String(),
+        })
+        .eq('instance_id', instanceId)
+        .eq('user_id', _currentUserId);
   }
 
   Future<void> printInventoryContent() async {
@@ -781,88 +693,35 @@ class DataStorageService {
 
   Future<void> moveCardBetweenBackpackAndPile(
       String instanceId, String fromLocation) async {
-    final db = await database;
+    if (_currentUserId == null) return;
+
     try {
-      await db.transaction((txn) async {
-        if (fromLocation == 'backpack') {
-          // Verifica se há espaço no monte
-          final sharedPileCount = Sqflite.firstIntValue(await txn.rawQuery(
-              "SELECT COUNT(*) FROM inventory WHERE location = 'shared_pile' AND user_id = ?", [_currentUserId]));
+      if (fromLocation == 'backpack') {
+        // Verifica se há espaço no monte
+        final response = await _supabaseClient
+            .from('inventory')
+            .select('count')
+            .eq('location', 'shared_pile')
+            .eq('user_id', _currentUserId)
+            .single();
 
-          if (sharedPileCount! >= MAX_SHARED_PILE_CARDS) {
-            print('Monte cheio, não é possível mover card da mochila');
-            return;
-          }
-
-          // Pega o caminho da imagem do card que está sendo movido
-          final cardResult = await txn.query(
-            'inventory',
-            columns: ['image_path'],
-            where: 'instance_id = ? AND user_id = ?',
-            whereArgs: [instanceId, _currentUserId],
-          );
-
-          if (cardResult.isNotEmpty) {
-            final imagePath = cardResult.first['image_path'] as String;
-
-            // Pega todos os IDs deste card na mochila
-            final backpackIds = await txn.query(
-              'inventory',
-              columns: ['instance_id'],
-              where: "location = 'backpack' AND image_path = ? AND user_id = ?",
-              whereArgs: [imagePath, _currentUserId],
-              orderBy: 'created_at ASC',
-            );
-
-            // Encontra o próximo ID não usado
-            String? idToMove;
-            for (var row in backpackIds) {
-              final currentId = row['instance_id'] as String;
-              final isUsed = await txn.query(
-                'inventory',
-                where: "location = 'shared_pile' AND instance_id = ? AND user_id = ?",
-                whereArgs: [currentId, _currentUserId],
-              );
-              if (isUsed.isEmpty) {
-                idToMove = currentId;
-                break;
-              }
-            }
-
-            // Move o card com o ID encontrado
-            if (idToMove != null) {
-              await txn.update(
-                'inventory',
-                {
-                  'location': 'shared_pile',
-                  'created_at': DateTime.now().toIso8601String(),
-                  'binder_id': null,
-                  'slot_index': null,
-                },
-                where: 'instance_id = ? AND user_id = ?',
-                whereArgs: [idToMove, _currentUserId],
-              );
-              print('Card movido da mochila para o monte (ID: $idToMove)');
-            }
-          }
-        } else {
-          // Move do monte para a mochila (mantém o mesmo)
-          await txn.update(
-            'inventory',
-            {
-              'location': 'backpack',
-              'created_at': DateTime.now().toIso8601String(),
-              'binder_id': null,
-              'slot_index': null,
-            },
-            where: 'instance_id = ? AND user_id = ?',
-            whereArgs: [instanceId, _currentUserId],
-          );
-          print('Card movido do monte para a mochila');
+        final sharedPileCount = response['count'] as int;
+        if (sharedPileCount >= MAX_SHARED_PILE_CARDS) {
+          print('Monte cheio, não é possível mover card da mochila');
+          return;
         }
-      });
+
+        // Move para o monte
+        await updateCardLocation(instanceId, 'shared_pile');
+        print('Card movido da mochila para o monte (ID: $instanceId)');
+      } else {
+        // Move do monte para a mochila
+        await updateCardLocation(instanceId, 'backpack');
+        print('Card movido do monte para a mochila');
+      }
     } catch (e) {
       print('Erro ao mover card entre mochila e monte: $e');
+      rethrow;
     }
   }
 
@@ -953,24 +812,20 @@ class DataStorageService {
     }
   }
 
-  Future<void> updateKCoins(int amount) async {
-    final db = await database;
-    await db.update(
-      'user_balance',
-      {'k_coins': amount},
-      where: 'user_id = ?',
-      whereArgs: [_currentUserId],
-    );
+  Future<void> updateKCoins(int newAmount) async {
+    if (_currentUserId == null) return;
+    await _supabaseClient
+        .from('user_balance')
+        .update({'k_coins': newAmount})
+        .eq('user_id', _currentUserId);
   }
 
-  Future<void> updateStarCoins(int amount) async {
-    final db = await database;
-    await db.update(
-      'user_balance',
-      {'star_coins': amount},
-      where: 'user_id = ?',
-      whereArgs: [_currentUserId],
-    );
+  Future<void> updateStarCoins(int newAmount) async {
+    if (_currentUserId == null) return;
+    await _supabaseClient
+        .from('user_balance')
+        .update({'star_coins': newAmount})
+        .eq('user_id', _currentUserId);
   }
 
   Future<Map<String, int>> getBalance() async {
@@ -1081,46 +936,30 @@ class DataStorageService {
 
   // Novo método para mover um card específico para o monte
   Future<void> moveSpecificCardToPile(String instanceId) async {
-    final db = await database;
-    try {
-      await db.transaction((txn) async {
-        // Verifica se há espaço no monte
-        final sharedPileCount = Sqflite.firstIntValue(await txn.rawQuery(
-            "SELECT COUNT(*) FROM inventory WHERE location = 'shared_pile' AND user_id = ?", [_currentUserId]));
+    if (_currentUserId == null) return;
 
-        if (sharedPileCount! >= MAX_SHARED_PILE_CARDS) {
-          // Se o monte estiver cheio, move direto para a mochila
-          await txn.update(
-            'inventory',
-            {
-              'location': 'backpack',
-              'created_at': DateTime.now().toIso8601String(),
-              'binder_id': null,
-              'slot_index': null,
-            },
-            where: 'instance_id = ? AND user_id = ?',
-            whereArgs: [instanceId, _currentUserId],
-          );
-          print(
-              'Monte cheio: Card movido para a mochila (instanceId: $instanceId)');
-        } else {
-          // Se houver espaço, move para o monte
-          await txn.update(
-            'inventory',
-            {
-              'location': 'shared_pile',
-              'created_at': DateTime.now().toIso8601String(),
-              'binder_id': null,
-              'slot_index': null,
-            },
-            where: 'instance_id = ? AND user_id = ?',
-            whereArgs: [instanceId, _currentUserId],
-          );
-          print('Card movido para o monte (instanceId: $instanceId)');
-        }
-      });
+    try {
+      // Verifica se há espaço no monte
+      final response = await _supabaseClient
+          .from('inventory')
+          .select('count')
+          .eq('location', 'shared_pile')
+          .eq('user_id', _currentUserId)
+          .single();
+
+      final sharedPileCount = response['count'] as int;
+      if (sharedPileCount >= MAX_SHARED_PILE_CARDS) {
+        // Se o monte estiver cheio, move direto para a mochila
+        await updateCardLocation(instanceId, 'backpack');
+        print('📦 Monte cheio: card $instanceId movido para a mochila');
+      } else {
+        // Se houver espaço, move para o monte
+        await updateCardLocation(instanceId, 'shared_pile');
+        print('📦 Card $instanceId movido para o monte');
+      }
     } catch (e) {
-      print('Erro ao mover card: $e');
+      print('❌ Erro ao mover card específico para o monte: $e');
+      rethrow;
     }
   }
 
@@ -1219,35 +1058,13 @@ class DataStorageService {
   }
 
   Future<int> getUserCoins() async {
-    final db = await database;
-    final result = await db.query('user_balance', where: 'user_id = ?', whereArgs: [_currentUserId]);
-    
-    if (result.isEmpty) {
-      // Verificar se o usuário já tem algum registro no banco
-      final userRecords = await db.query('user_balance', where: 'user_id = ?', whereArgs: [_currentUserId]);
-      
-      // Se for o primeiro login deste usuário, definir 300 coins
-      if (userRecords.isEmpty) {
-        await db.insert('user_balance', {
-          'user_id': _currentUserId,
-          'k_coins': 300,
-          'star_coins': 0,
-          'last_reward_time': 0,
-        });
-        return 300;
-      }
-      
-      // Se não for o primeiro login, criar com 0 coins
-      await db.insert('user_balance', {
-        'user_id': _currentUserId,
-        'k_coins': 0,
-        'star_coins': 0,
-        'last_reward_time': 0,
-      });
-      return 0;
-    }
-    
-    return result.first['k_coins'] as int;
+    if (_currentUserId == null) return 0;
+    final result = await _supabaseClient
+        .from('user_balance')
+        .select('k_coins')
+        .eq('user_id', _currentUserId)
+        .maybeSingle();
+    return result != null ? result['k_coins'] ?? 0 : 0;
   }
 
   Future<List<Map<String, dynamic>>> getAllBinders() async {

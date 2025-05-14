@@ -110,7 +110,7 @@ class _BinderPageState extends State<BinderPage> with WidgetsBindingObserver {
 
   Future<void> _loadSharedPile() async {
     try {
-      final sharedPile = await widget.dataStorageService.getSharedPile();
+      final sharedPile = await widget.dataStorageService.getSharedPileCards();
       print('Monte compartilhado carregado: ${sharedPile.length} cards');
 
       // Converter List<Map<String, dynamic>> para List<Map<String, String>>
@@ -132,48 +132,52 @@ class _BinderPageState extends State<BinderPage> with WidgetsBindingObserver {
   Future<void> _saveBinderSlot(int index, String? imagePath,
       {String? instanceId, int? pageNumber}) async {
     try {
-      await widget.dataStorageService.savePhotocardPosition(
-        widget.binderId,
-        pageNumber ?? currentPage,
-        index,
-        imagePath,
-        instanceId: instanceId,
-      );
+      // Se não tiver instanceId e tiver imagePath, gera um novo
+      if (instanceId == null && imagePath != null) {
+        instanceId = await widget.dataStorageService.addToInventory(
+          imagePath,
+          'binder',
+          binderId: widget.binderId,
+          slotIndex: index,
+          pageNumber: pageNumber ?? currentPage,
+        );
+      }
 
-      setState(() {
-        binderPages[pageNumber ?? currentPage][index] = {
-          'imagePath': imagePath,
-          'instanceId': instanceId,
-        };
-      });
+      // Só atualiza se tiver um instanceId
+      if (instanceId != null) {
+        await widget.dataStorageService.savePhotocardPosition(
+          widget.binderId,
+          pageNumber ?? currentPage,
+          index,
+          imagePath,
+          instanceId: instanceId,
+        );
 
-      await _refreshSharedPile();
-      print(
-          'Slot $index da página ${pageNumber ?? currentPage} atualizado com sucesso');
+        setState(() {
+          binderPages[pageNumber ?? currentPage][index] = {
+            'imagePath': imagePath,
+            'instanceId': instanceId,
+          };
+        });
+
+        await _refreshSharedPile();
+        print('Slot $index da página ${pageNumber ?? currentPage} atualizado com sucesso');
+      }
     } catch (e) {
       print('Erro ao salvar slot do binder: $e');
+      rethrow;
     }
   }
 
   Future<void> _throwPhotocardToMount(int index, int pageIndex) async {
-    if (binderPages[pageIndex][index]['imagePath'] != null) {
-      final imagePath = binderPages[pageIndex][index]['imagePath']!;
-      final instanceId = binderPages[pageIndex][index]['instanceId'];
+    final slotData = binderPages[pageIndex][index];
+    final instanceId = slotData['instanceId'];
 
+    if (instanceId != null) {
       try {
-        // Remove do slot
-        await widget.dataStorageService.savePhotocardPosition(
-          widget.binderId,
-          0,
-          index,
-          null,
-          instanceId: instanceId,
-        );
-
-        // Adiciona ao monte compartilhado
-        final String newInstanceId =
-            await widget.dataStorageService.addToInventory(
-          imagePath,
+        // Move diretamente o card existente para o monte
+        await widget.dataStorageService.updateCardLocation(
+          instanceId,
           'shared_pile',
         );
 
@@ -184,10 +188,8 @@ class _BinderPageState extends State<BinderPage> with WidgetsBindingObserver {
           };
         });
 
-        // Atualiza o monte após a mudança
         await _refreshSharedPile();
-
-        print('Photocard movido para o monte: $imagePath');
+        print('📤 Photocard movido para o monte (ID: $instanceId)');
       } catch (e) {
         print('Erro ao mover photocard para o monte: $e');
       }
@@ -204,12 +206,15 @@ class _BinderPageState extends State<BinderPage> with WidgetsBindingObserver {
         });
 
         // Atualiza o banco de dados
-        await widget.dataStorageService.updateCardLocation(
-          card['instanceId'],
-          'binder',
-          binderId: widget.binderId,
-          slotIndex: index,
-        );
+        final instanceId = card['instanceId'];
+        if (instanceId != null) {
+          await widget.dataStorageService.updateCardLocation(
+            instanceId,
+            'binder',
+            binderId: widget.binderId,
+            slotIndex: index,
+          );
+        }
 
         // Atualiza o slot visualmente
         setState(() {
@@ -239,17 +244,11 @@ class _BinderPageState extends State<BinderPage> with WidgetsBindingObserver {
   }
 
   Future<void> _onSlotTap(int index) async {
-    if (binderPages[currentPage][index]['imagePath'] != null) {
-      try {
-        final imagePath = binderPages[currentPage][index]['imagePath']!;
-        final instanceId = binderPages[currentPage][index]['instanceId'];
+    final instanceId = binderPages[currentPage][index]['instanceId'];
 
-        // Move o photocard de volta para o monte
-        final String newInstanceId =
-            await widget.dataStorageService.addToInventory(
-          imagePath,
-          'shared_pile',
-        );
+    if (instanceId != null) {
+      try {
+        await widget.dataStorageService.moveSpecificCardToPile(instanceId);
 
         setState(() {
           binderPages[currentPage][index] = {
@@ -258,13 +257,44 @@ class _BinderPageState extends State<BinderPage> with WidgetsBindingObserver {
           };
         });
 
-        // Atualiza o monte após a mudança
         await _refreshSharedPile();
-
-        print('Photocard removido do slot $index e movido para o monte');
       } catch (e) {
-        print('Erro ao remover photocard do slot: $e');
+        print('❌ Erro ao mover card do binder para o monte: $e');
       }
+    }
+  }
+
+  Future<void> _onSharedCardTap(Map<String, dynamic> card) async {
+    try {
+      // Procura por um slot vazio na página atual
+      final emptySlotIndex = binderPages[currentPage].indexWhere(
+          (slot) => slot['imagePath'] == null);
+
+      if (emptySlotIndex != -1) {
+        // Move card para o slot vazio no Supabase
+        await widget.dataStorageService.updateCardLocation(
+          card['instance_id'],
+          'binder',
+          binderId: widget.binderId,
+          pageNumber: currentPage,
+          slotIndex: emptySlotIndex,
+        );
+
+        // Atualiza o estado local da UI
+        setState(() {
+          binderPages[currentPage][emptySlotIndex] = {
+            'imagePath': card['image_path'],
+            'instanceId': card['instance_id'],
+          };
+        });
+
+        // Atualiza visualmente o monte
+        await _refreshSharedPile();
+      } else {
+        print('⚠️ Não há slots vazios na página atual');
+      }
+    } catch (e) {
+      print('❌ Erro ao mover card do monte para o binder: $e');
     }
   }
 
@@ -549,6 +579,7 @@ class _BinderPageState extends State<BinderPage> with WidgetsBindingObserver {
                       pageIndex,
                       index,
                       null,
+                      instanceId: instanceId,
                     );
                     await _refreshSharedPile();
                   }
@@ -672,7 +703,7 @@ class _BinderPageState extends State<BinderPage> with WidgetsBindingObserver {
         if (data['fromLocation'] == 'binder') {
           // Move para o monte (só chega aqui se houver espaço)
           await widget.dataStorageService
-              .movePhotocardToPile(data['imagePath']!);
+              .moveSpecificCardToPile(data['instanceId']!);
           await _refreshSharedPile();
         }
       },
@@ -750,36 +781,32 @@ class _BinderPageState extends State<BinderPage> with WidgetsBindingObserver {
       for (int pageIndex = 0; pageIndex < TOTAL_PAGES; pageIndex++) {
         for (int slotIndex = 0; slotIndex < 4; slotIndex++) {
           if (binderPages[pageIndex][slotIndex]['imagePath'] != null) {
-            await widget.dataStorageService.updateCardLocation(
-              binderPages[pageIndex][slotIndex]['instanceId'],
-              'binder',
-              binderId: widget.binderId,
-              slotIndex: slotIndex,
-              pageNumber: pageIndex,
-            );
-            print(
-                'Slot $slotIndex da página $pageIndex salvo com sucesso: ${binderPages[pageIndex][slotIndex]['imagePath']}');
+            final instanceId = binderPages[pageIndex][slotIndex]['instanceId'];
+            if (instanceId != null) {
+              await widget.dataStorageService.updateCardLocation(
+                instanceId,
+                'binder',
+                binderId: widget.binderId,
+                slotIndex: slotIndex,
+                pageNumber: pageIndex,
+              );
+            }
           } else {
             // Limpa o slot se estiver vazio
-            await widget.dataStorageService.updateCardLocation(
-              null,
-              'binder',
-              binderId: widget.binderId,
-              slotIndex: slotIndex,
-              pageNumber: pageIndex,
-            );
-            print('Slot $slotIndex da página $pageIndex limpo');
+            // Skip updating empty slots as they don't have an instanceId
           }
         }
       }
 
       // Salva o estado do monte
       for (var card in cardDeck) {
-        await widget.dataStorageService.updateCardLocation(
-          card['instanceId'],
-          'shared_pile',
-        );
-        print('Card salvo no monte: ${card['imagePath']}');
+        final instanceId = card['instanceId'];
+        if (instanceId != null) {
+          await widget.dataStorageService.updateCardLocation(
+            instanceId,
+            'shared_pile',
+          );
+        }
       }
 
       print('Estado do binder salvo com sucesso');

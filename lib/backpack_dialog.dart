@@ -45,10 +45,10 @@ class _BackpackDialogState extends State<BackpackDialog> {
     // Log detailed information about card counts
     _cardCountsFuture.then((counts) {
       print('🔢 Card Counts:');
-      counts.forEach((imagePath, instances) {
+      counts.forEach((imagePath, instanceIds) {
         print('📊 Image: $imagePath');
-        print('   Count: ${instances.length}');
-        print('   Instance IDs: ${instances.join(", ")}');
+        print('   Count: ${instanceIds.length}');
+        print('   Instance IDs: ${instanceIds.join(', ')}');
       });
     }).catchError((error) {
       print('❌ Error loading card counts: $error');
@@ -113,6 +113,9 @@ class _BackpackDialogState extends State<BackpackDialog> {
 
                     final cardCounts = countsSnapshot.data!;
                     final cards = cardsSnapshot.data!;
+                    final countMap = Map<String, int>.fromEntries(
+                      cardCounts.entries.map((e) => MapEntry(e.key, e.value.length))
+                    );
 
                     return Flexible(
                       child: Column(
@@ -138,9 +141,7 @@ class _BackpackDialogState extends State<BackpackDialog> {
                                     const double borderRadius = 15.0;
 
                                     final card = cards[index];
-                                    final count =
-                                        cardCounts[card['image_path']]?.length ??
-                                            0;
+                                    final count = countMap[card['image_path']] ?? 0;
 
                                     return Stack(
                                       children: [
