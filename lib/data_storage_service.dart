@@ -827,62 +827,104 @@ class DataStorageService {
   }
 
   Future<Map<String, int>> getBalance() async {
-    if (_currentUserId == null) {
-      debugPrint('Erro: Usuário não definido ao buscar saldo');
-      return {'k_coins': 300, 'star_coins': 0};
-    }
+  if (_currentUserId == null) {
+    debugPrint('Erro: Usuário não definido ao buscar saldo');
+    return {'k_coins': 300, 'star_coins': 0};
+  }
 
-    final db = await database;
-    final result = await db.query('user_balance', where: 'user_id = ?', whereArgs: [_currentUserId]);
-    
-    if (result.isEmpty) {
-      // Verificar se o usuário já tem algum registro no banco
-      final userRecords = await db.query('user_balance', where: 'user_id = ?', whereArgs: [_currentUserId]);
-      
-      // Se for o primeiro login deste usuário, definir 300 coins
-      if (userRecords.isEmpty) {
-        await db.insert('user_balance', {
-          'user_id': _currentUserId,
-          'k_coins': 300,  // Definir saldo inicial para 300 K-Coins
-          'star_coins': 0,
-          'last_reward_time': 0,
-        });
-        return {'k_coins': 300, 'star_coins': 0};
-      }
-      
-      // Se não for o primeiro login, criar com 0 coins
-      await db.insert('user_balance', {
+  try {
+    final result = await _supabaseClient
+        .from('user_balance')
+        .select()
+        .eq('user_id', _currentUserId)
+        .maybeSingle();
+
+    if (result != null) {
+      return {
+        'k_coins': result['k_coins'] ?? 300,
+        'star_coins': result['star_coins'] ?? 0,
+      };
+    } else {
+      // ✅ Cria o saldo inicial no Supabase
+      await _supabaseClient.from('user_balance').insert({
         'user_id': _currentUserId,
-        'k_coins': 0,
+        'k_coins': 300,
         'star_coins': 0,
         'last_reward_time': 0,
       });
-      return {'k_coins': 0, 'star_coins': 0};
+
+      debugPrint('🪙 Saldo inicial criado para $_currentUserId');
+      return {'k_coins': 300, 'star_coins': 0};
     }
-    
-    return {
-      'k_coins': result.first['k_coins'] as int,
-      'star_coins': result.first['star_coins'] as int,
-    };
+  } catch (e) {
+    debugPrint('❌ Erro ao buscar saldo no Supabase: $e');
+    return {'k_coins': 300, 'star_coins': 0};
+  }
+}
+
+  // Garante que o usuário tem um registro de saldo no Supabase
+  Future<void> ensureBalanceExistsForUser() async {
+    if (_currentUserId == null) {
+      debugPrint('❌ Erro: Usuário não definido ao verificar saldo');
+      return;
+    }
+
+    try {
+      final result = await _supabaseClient
+          .from('user_balance')
+          .select()
+          .eq('user_id', _currentUserId)
+          .maybeSingle();
+
+      if (result == null) {
+        // Criar saldo inicial se não existir
+        await _supabaseClient.from('user_balance').insert({
+          'user_id': _currentUserId,
+          'k_coins': 300,
+          'star_coins': 0,
+          'last_reward_time': 0,
+        });
+        debugPrint('🪙 Saldo inicial criado para $_currentUserId');
+      }
+    } catch (e) {
+      debugPrint('❌ Erro ao verificar/criar saldo no Supabase: $e');
+    }
   }
 
   Future<void> updateLastRewardTime(int timestamp) async {
-    final db = await database;
-    await db.update(
-      'user_balance',
-      {'last_reward_time': timestamp},
-      where: 'user_id = ?',
-      whereArgs: [_currentUserId],
-    );
+    if (_currentUserId == null) {
+      debugPrint('❌ Erro: Usuário não definido ao atualizar last_reward_time');
+      return;
+    }
+
+    try {
+      await _supabaseClient
+          .from('user_balance')
+          .update({'last_reward_time': timestamp})
+          .eq('user_id', _currentUserId);
+    } catch (e) {
+      debugPrint('❌ Erro ao atualizar last_reward_time no Supabase: $e');
+    }
   }
 
   Future<int> getLastRewardTime() async {
-    final db = await database;
-    final result = await db.query('user_balance', where: 'user_id = ?', whereArgs: [_currentUserId]);
-    if (result.isNotEmpty) {
-      return result.first['last_reward_time'] as int;
+    if (_currentUserId == null) {
+      debugPrint('❌ Erro: Usuário não definido ao buscar last_reward_time');
+      return 0;
     }
-    return 0;
+
+    try {
+      final result = await _supabaseClient
+          .from('user_balance')
+          .select('last_reward_time')
+          .eq('user_id', _currentUserId)
+          .maybeSingle();
+      
+      return result?['last_reward_time'] ?? 0;
+    } catch (e) {
+      debugPrint('❌ Erro ao buscar last_reward_time no Supabase: $e');
+      return 0;
+    }
   }
 
   Future<void> addPurchasedFrame(String framePath) async {

@@ -253,7 +253,11 @@ class SupabaseService {
         final currentUser = _client.auth.currentUser;
         
         if (currentUser != null && currentUser.id == userId) {
-          print('Sessão restaurada com sucesso');
+          // Atualizar DataStorageService com o ID do usuário
+          final dataStorageService = DataStorageService();
+          dataStorageService.setCurrentUser(userId);
+          
+          print('✅ Sessão restaurada com sucesso');
           return true;
         }
       }
@@ -271,9 +275,10 @@ class SupabaseService {
     try {
       if (response.user != null) {
         final prefs = await SharedPreferences.getInstance();
+        final userId = response.user!.id;
         
         // Salvar informações essenciais do usuário
-        await prefs.setString('user_id', response.user!.id);
+        await prefs.setString('user_id', userId);
         await prefs.setString('user_email', response.user!.email ?? '');
         
         // Salvar token de acesso, se disponível
@@ -281,10 +286,14 @@ class SupabaseService {
           await prefs.setString('access_token', response.session!.accessToken);
         }
         
-        print('Informações de login salvas com sucesso');
+        // Atualizar DataStorageService com o ID do usuário
+        final dataStorageService = DataStorageService();
+        dataStorageService.setCurrentUser(userId);
+        
+        print('✅ Informações de login salvas e serviços atualizados');
       }
     } catch (e) {
-      print('Erro ao salvar informações de login: $e');
+      print('❌ Erro ao salvar informações de login: $e');
     }
   }
 

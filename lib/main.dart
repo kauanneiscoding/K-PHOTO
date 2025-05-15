@@ -54,6 +54,9 @@ void main() async {
       // Definir usuário no serviço de armazenamento
       dataStorageService.setCurrentUser(user.id);
       
+      // Garantir que o usuário tem saldo inicial
+      await dataStorageService.ensureBalanceExistsForUser();
+      
       userSyncService.setCurrentUser(user.id);
       
       // Garantir que haja um binder inicial
@@ -84,10 +87,14 @@ void main() async {
   // Inicializa o banco de dados
   await dataStorageService.initDatabase();
 
-  // Inicializa o CurrencyService
-  CurrencyService.initialize(dataStorageService);
-
+  // Restaurar estado antes de inicializar serviços
   await dataStorageService.restoreFullState();
+
+  // Inicializar CurrencyService apenas se o usuário estiver logado
+  final currentUser = Supabase.instance.client.auth.currentUser;
+  if (isLoggedIn && currentUser != null) {
+    await CurrencyService.initialize(dataStorageService);
+  }
 
   runApp(MyApp(
     initialRoute: isLoggedIn ? '/home' : '/login',
@@ -197,8 +204,38 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    _initializeRewards();
-    _startBalanceUpdateTimer();
+    _initializeUserAndBalance();
+  }
+
+  Future<void> _initializeUserAndBalance() async {
+    // 1. Esperar auth.currentUser
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) {
+      debugPrint('❌ Erro: Usuário não está logado');
+      return;
+    }
+
+    // 2. Definir usuário ativo
+    widget.dataStorageService.setCurrentUser(user.id);
+    
+    // 3. Garantir que tem saldo e inicializar rewards
+    await widget.dataStorageService.ensureBalanceExistsForUser();
+
+    // 4. Inicializar CurrencyService com o usuário atual
+    await CurrencyService.initialize(widget.dataStorageService);
+
+    // 5. Carregar saldo e inicializar rewards
+    if (mounted) {
+      await _loadBalances(); // Agora é seguro carregar o saldo
+      
+      final secondsPassed = await CurrencyService.getSecondsSinceLastReward();
+      setState(() {
+        _secondsUntilNextReward = 60 - (secondsPassed % 60);
+      });
+      
+      _startTimer();
+      _startBalanceUpdateTimer();
+    }
   }
 
   @override

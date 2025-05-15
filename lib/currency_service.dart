@@ -1,4 +1,5 @@
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/foundation.dart';
 import 'data_storage_service.dart';
 
 class CurrencyService {
@@ -9,12 +10,12 @@ class CurrencyService {
   static const String _lastRewardAmountKey = 'last_reward_amount';
   static const String _initializedKey = 'initialized';
 
-  static void initialize(DataStorageService dataStorageService) {
+  static Future<void> initialize(DataStorageService dataStorageService) async {
     try {
       _dataStorageService = dataStorageService;
-      _logBalance();
+      await _logBalance(); // Esperar o log completar
     } catch (e) {
-      print('Erro ao inicializar CurrencyService: $e');
+      debugPrint('Erro ao inicializar CurrencyService: $e');
     }
   }
 
