@@ -1206,32 +1206,23 @@ class DataStorageService {
   }
 
   Future<bool> addToSharedPile(String imagePath) async {
-    final db = await database;
-    try {
-      // Log the current user ID and image path
-      print('🔍 Tentando adicionar card ao monte');
-      print('👤 ID do usuário atual: $_currentUserId');
-      print('🖼️ Caminho da imagem: $imagePath');
+    const int MAX_SHARED_PILE_CARDS = 10;
 
-      final currentCount = Sqflite.firstIntValue(await db.rawQuery(
-          "SELECT COUNT(*) FROM inventory WHERE location = 'shared_pile' AND user_id = ?", [_currentUserId]));
+    if (_currentUserId == null) return false;
 
-      print('📊 Contagem atual de cards no monte: $currentCount');
+    final currentPile = await _supabaseClient!
+        .from('inventory')
+        .select('instance_id')
+        .eq('user_id', _currentUserId)
+        .eq('location', 'shared_pile');
 
-      const int MAX_SHARED_PILE_CARDS = 10; // Defina o limite máximo
+    print('📦 Monte atual: ${currentPile.length} cards');
 
-      if (currentCount! < MAX_SHARED_PILE_CARDS) {
-        // Adicionar ao inventário
-        final instanceId = await addToInventory(imagePath, 'shared_pile');
-        print('✅ Card adicionado ao inventário. ID da instância: $instanceId');
-        return true;
-      } else {
-        await addToInventory(imagePath, 'backpack');
-        print('⚠️ Card adicionado à mochila (monte cheio)');
-        return false;
-      }
-    } catch (e) {
-      print('❌ Erro ao adicionar card: $e');
+    if (currentPile.length < MAX_SHARED_PILE_CARDS) {
+      await addToInventory(imagePath, 'shared_pile');
+      return true;
+    } else {
+      await addToInventory(imagePath, 'backpack');
       return false;
     }
   }
