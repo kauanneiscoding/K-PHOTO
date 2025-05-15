@@ -4,6 +4,7 @@ import 'package:k_photo/data_storage_service.dart';
 import 'binder_page.dart';
 import 'edit_binder_page.dart';
 import 'models/keychain.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class BinderViewPage extends StatefulWidget {
   final String binderId;
@@ -31,8 +32,10 @@ class _BinderViewPageState extends State<BinderViewPage>
   late Animation<double> _animation;
   double _dragPosition = 0.0;
   bool isOpen = false;
-  late String currentCover;
-  late String currentSpine;
+  String coverAsset = '';
+  String spineAsset = '';
+  String? keychainAsset;
+  final _supabaseClient = Supabase.instance.client;
 
   // Adicione esta lista de keychains disponíveis
   final List<Keychain> availableKeychains = [
@@ -46,8 +49,8 @@ class _BinderViewPageState extends State<BinderViewPage>
   @override
   void initState() {
     super.initState();
-    currentCover = widget.binderCover;
-    currentSpine = widget.binderSpine;
+    coverAsset = widget.binderCover;
+    spineAsset = widget.binderSpine;
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 500),
@@ -70,15 +73,25 @@ class _BinderViewPageState extends State<BinderViewPage>
         );
       }
     });
-    _loadKeychain();
+    _loadBinderData();
   }
 
-  Future<void> _loadKeychain() async {
-    final binderData =
-        await widget.dataStorageService.getBinderCovers(widget.binderId);
-    if (binderData != null && mounted) {
+  Future<void> _loadBinderData() async {
+    final userId = _supabaseClient.auth.currentUser?.id;
+    if (userId == null) return;
+
+    final binder = await _supabaseClient
+        .from('binders')
+        .select()
+        .eq('id', widget.binderId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (binder != null) {
       setState(() {
-        currentKeychain = binderData['keychain'];
+        coverAsset = binder['cover_asset'];
+        spineAsset = binder['spine_asset'];
+        keychainAsset = binder['keychain_asset'];
       });
     }
   }
@@ -170,9 +183,9 @@ class _BinderViewPageState extends State<BinderViewPage>
       context,
       MaterialPageRoute(
         builder: (context) => EditBinderPage(
-          currentCover: currentCover,
-          currentSpine: currentSpine,
-          currentKeychain: currentKeychain,
+          currentCover: coverAsset,
+          currentSpine: spineAsset,
+          currentKeychain: keychainAsset,
           onCoversChanged: (cover, spine, keychain) async {
             await widget.dataStorageService.updateBinderCovers(
               widget.binderId,
@@ -188,9 +201,9 @@ class _BinderViewPageState extends State<BinderViewPage>
             widget.dataStorageService.notifyBinderUpdate();
 
             setState(() {
-              currentCover = cover;
-              currentSpine = spine;
-              currentKeychain = keychain;
+              coverAsset = cover;
+              spineAsset = spine;
+              keychainAsset = keychain;
             });
             Navigator.pop(context);
           },
@@ -243,9 +256,9 @@ class _BinderViewPageState extends State<BinderViewPage>
                 context,
                 MaterialPageRoute(
                   builder: (context) => EditBinderPage(
-                    currentCover: currentCover,
-                    currentSpine: currentSpine,
-                    currentKeychain: currentKeychain,
+                    currentCover: coverAsset,
+                    currentSpine: spineAsset,
+                    currentKeychain: keychainAsset,
                     onCoversChanged: (cover, spine, keychain) async {
                       await widget.dataStorageService.updateBinderCovers(
                         widget.binderId,
@@ -261,9 +274,9 @@ class _BinderViewPageState extends State<BinderViewPage>
                       widget.dataStorageService.notifyBinderUpdate();
 
                       setState(() {
-                        currentCover = cover;
-                        currentSpine = spine;
-                        currentKeychain = keychain;
+                        coverAsset = cover;
+                        spineAsset = spine;
+                        keychainAsset = keychain;
                       });
                       Navigator.pop(context);
                     },
@@ -321,7 +334,7 @@ class _BinderViewPageState extends State<BinderViewPage>
                                     height: MediaQuery.of(context).size.height *
                                         0.8,
                                     child: Image.asset(
-                                      currentCover,
+                                      coverAsset,
                                       fit: BoxFit.contain,
                                       errorBuilder:
                                           (context, error, stackTrace) {
@@ -333,8 +346,8 @@ class _BinderViewPageState extends State<BinderViewPage>
                                     ),
                                   ),
                                 ),
-                                if (currentKeychain != null &&
-                                    currentKeychain!.isNotEmpty)
+                                if (keychainAsset != null &&
+                                    keychainAsset!.isNotEmpty)
                                   Stack(
                                     clipBehavior: Clip.none,
                                     children: [
@@ -360,7 +373,7 @@ class _BinderViewPageState extends State<BinderViewPage>
                                                     .width *
                                                 0.60,
                                             child: Image.asset(
-                                              currentKeychain!,
+                                              keychainAsset!,
                                               fit: BoxFit.contain,
                                             ),
                                           ),

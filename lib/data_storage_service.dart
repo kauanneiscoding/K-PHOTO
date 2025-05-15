@@ -794,23 +794,21 @@ class DataStorageService {
     }
   }
 
-  Future<void> saveBinderKeychain(String binderId, String keychainPath) async {
-    final db = await database;
-    try {
-      await db.update(
-        'binders',
-        {
-          'keychain_asset': keychainPath,
-          'updated_at': DateTime.now().toIso8601String(),
-        },
-        where: 'id = ? AND user_id = ?',
-        whereArgs: [binderId, _currentUserId],
-      );
-      print('Keychain do binder $binderId atualizado com sucesso');
-    } catch (e) {
-      print('Erro ao atualizar keychain do binder: $e');
-    }
+ Future<void> saveBinderKeychain(String binderId, String keychainPath) async {
+  if (_currentUserId == null) return;
+
+  try {
+    await _supabaseClient!.from('binders').update({
+      'keychain_asset': keychainPath,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', binderId).eq('user_id', _currentUserId);
+
+    print('🔗 Keychain do binder $binderId salvo com sucesso no Supabase!');
+  } catch (e) {
+    print('❌ Erro ao salvar keychain do binder no Supabase: $e');
   }
+}
+
 
   Future<void> updateKCoins(int newAmount) async {
     if (_currentUserId == null) return;
