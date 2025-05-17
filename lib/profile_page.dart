@@ -267,6 +267,31 @@ class _ProfilePageState extends State<ProfilePage> {
                     ),
                   ),
                   SizedBox(height: 8),
+                  FutureBuilder<String?>(
+                    future: _usernameFuture,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        );
+                      }
+
+                      final username = snapshot.data;
+                      return Text(
+                        username != null ? '@$username' : 'Sem username',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      );
+                    },
+                  ),
                   FutureBuilder<bool>(
                     future: widget.dataStorageService.canChangeUsername(),
                     builder: (context, snapshot) {
@@ -446,13 +471,34 @@ class _ProfilePageState extends State<ProfilePage> {
                           children: [
                             _buildProfilePicture(),
                             SizedBox(height: 10),
-                            Text(
-                              '@username',
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
+                            FutureBuilder<String?>(
+                              future: _usernameFuture,
+                              builder: (context, snapshot) {
+                                if (snapshot.connectionState == ConnectionState.waiting) {
+                                  return CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2,
+                                  );
+                                } else if (snapshot.hasData && snapshot.data != null && snapshot.data!.isNotEmpty) {
+                                  return Text(
+                                    '@${snapshot.data}',
+                                    style: TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  );
+                                } else {
+                                  return Text(
+                                    '@sem_usuario',
+                                    style: TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  );
+                                }
+                              },
                             ),
                             SizedBox(height: 10),
                             TextButton(

@@ -1001,67 +1001,140 @@ class DataStorageService {
       print('❌ Erro ao mover card específico para o monte: $e');
       rethrow;
     }
+  }Future<bool> canChangeUsername() async {
+  if (_currentUserId == null) {
+    debugPrint('❌ Erro: Usuário não definido ao verificar mudança de username');
+    return false;
   }
 
-  Future<bool> canChangeUsername() async {
-    final db = await database;
-    final result = await db.query('username');
+  try {
+    final response = await _supabaseClient
+        .from('username')
+        .select('last_change')
+        .eq('user_id', _currentUserId)
+        .maybeSingle();
 
-    if (result.isEmpty) return true;
-
-    final lastChange = DateTime.parse(result.first['last_change'] as String);
-    final now = DateTime.now();
-    final difference = now.difference(lastChange).inDays;
-
-    return difference >= 20;
-  }
-
-  Future<DateTime?> getNextUsernameChangeDate() async {
-    final db = await database;
-    final result = await db.query('username');
-
-    if (result.isEmpty) return null;
-
-    final lastChange = DateTime.parse(result.first['last_change'] as String);
-    return lastChange.add(Duration(days: 20));
-  }
-
-  Future<bool> isUsernameAvailable(String username) async {
-    final db = await database;
-    final result = await db.query(
-      'username',
-      where: 'name = ?',
-      whereArgs: [username],
-    );
-    return result.isEmpty;
-  }
-
-  Future<bool> setUsername(String username) async {
-    final db = await database;
-    try {
-      await db.insert(
-        'username',
-        {
-          'name': username,
-          'last_change': DateTime.now().toIso8601String(),
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+    if (response == null || response['last_change'] == null) {
+      debugPrint('✅ Primeira mudança de username permitida');
       return true;
-    } catch (e) {
-      print('Erro ao definir username: $e');
-      return false;
     }
-  }
 
-  Future<String?> getUsername() async {
-    final db = await database;
-    final result = await db.query('username');
-    if (result.isNotEmpty) {
-      return result.first['name'] as String;
-    }
+    final lastChange = DateTime.parse(response['last_change']);
+    final daysPassed = DateTime.now().difference(lastChange).inDays;
+    final canChange = daysPassed >= 20;
+
+    debugPrint(canChange
+        ? '✅ Pode mudar username (${daysPassed} dias desde a última mudança)'
+        : 'ℹ️ Precisa esperar mais ${20 - daysPassed} dias para mudar o username');
+
+    return canChange;
+  } catch (e) {
+    debugPrint('❌ Erro ao verificar permissão de mudança de username: $e');
+    return false;
+  }
+}
+
+Future<DateTime?> getNextUsernameChangeDate() async {
+  if (_currentUserId == null) {
+    debugPrint('❌ Erro: Usuário não definido ao buscar próxima data de mudança');
     return null;
   }
+
+  try {
+    final response = await _supabaseClient
+        .from('username')
+        .select('last_change')
+        .eq('user_id', _currentUserId)
+        .maybeSingle();
+
+    if (response == null || response['last_change'] == null) {
+      debugPrint('✅ Mudança de username disponível imediatamente');
+      return null;
+    }
+
+    final lastChange = DateTime.parse(response['last_change']);
+    final nextChange = lastChange.add(Duration(days: 20));
+    
+    debugPrint('ℹ️ Próxima mudança de username disponível em: ${nextChange.toIso8601String()}');
+    return nextChange;
+  } catch (e) {
+    debugPrint('❌ Erro ao buscar próxima data de mudança: $e');
+    return null;
+  }
+}
+
+Future<bool> isUsernameAvailable(String username) async {
+  try {
+    final cleanUsername = username.trim().toLowerCase();
+    final existing = await _supabaseClient
+        .from('username')
+        .select('user_id')
+        .eq('name', cleanUsername)
+        .maybeSingle();
+
+    final isAvailable = existing == null;
+    debugPrint(isAvailable
+        ? '✅ Username "$cleanUsername" está disponível'
+        : 'ℹ️ Username "$cleanUsername" já está em uso');
+
+    return isAvailable;
+  } catch (e) {
+    debugPrint('❌ Erro ao verificar disponibilidade do username: $e');
+    return false;
+  }
+}
+
+Future<bool> setUsername(String username) async {
+  if (_currentUserId == null) {
+    debugPrint('❌ Erro: Usuário não definido ao definir username');
+    return false;
+  }
+
+  try {
+    final now = DateTime.now().toIso8601String();
+    final cleanUsername = username.trim().toLowerCase();
+
+    await _supabaseClient
+        .from('username')
+        .upsert({
+          'user_id': _currentUserId,
+          'name': cleanUsername,
+          'last_change': now,
+        }, onConflict: 'user_id');
+
+    debugPrint('✅ Username definido com sucesso: $cleanUsername');
+    return true;
+  } catch (e) {
+    debugPrint('❌ Erro ao definir username: $e');
+    return false;
+  }
+}
+
+Future<String?> getUsername() async {
+  if (_currentUserId == null) {
+    debugPrint('❌ Erro: Usuário não definido ao buscar username');
+    return null;
+  }
+
+  try {
+    final response = await _supabaseClient
+        .from('username')
+        .select('name')
+        .eq('user_id', _currentUserId)
+        .maybeSingle();
+
+    if (response == null) {
+      debugPrint('ℹ️ Nenhum username encontrado para $_currentUserId');
+      return null;
+    }
+
+    return response['name'] as String?;
+  } catch (e) {
+    debugPrint('❌ Erro ao buscar username no Supabase: $e');
+    return null;
+  }
+}
+
 
   Future<bool> canMoveToSharedPile() async {
     final db = await database;

@@ -200,11 +200,21 @@ class _HomePageState extends State<HomePage> {
   int _starCoins = 0;
   int _secondsUntilNextReward = 60;
   Timer? _balanceUpdateTimer;
+  Timer? _timer;
+  bool _dialogIsOpen = false;
 
   @override
   void initState() {
     super.initState();
     _initializeUserAndBalance();
+    _initializeRewards();
+    _startTimer();
+    _startBalanceUpdateTimer();
+    _loadBalances();
+    
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _verificarUsernameObrigatorio();
+    });
   }
 
   Future<void> _initializeUserAndBalance() async {
@@ -240,6 +250,7 @@ class _HomePageState extends State<HomePage> {
 
   @override
   void dispose() {
+    _timer?.cancel();
     _balanceUpdateTimer?.cancel();
     super.dispose();
   }
@@ -252,20 +263,17 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _startTimer() {
-    Timer.periodic(Duration(seconds: 1), (timer) async {
-      if (!mounted) {
-        timer.cancel();
-        return;
+    _timer = Timer.periodic(Duration(seconds: 1), (timer) {
+      if (mounted) {
+        setState(() {
+          if (_secondsUntilNextReward > 0) {
+            _secondsUntilNextReward--;
+          } else {
+            _addKCoins();
+            _secondsUntilNextReward = 300; // Reinicia o timer para 5 minutos
+          }
+        });
       }
-
-      setState(() {
-        if (_secondsUntilNextReward > 0) {
-          _secondsUntilNextReward--;
-        } else {
-          _secondsUntilNextReward = 60;
-          _addKCoins();
-        }
-      });
     });
   }
 
@@ -305,6 +313,90 @@ class _HomePageState extends State<HomePage> {
       _selectedIndex = index;
     });
   }
+
+  Future<void> _verificarUsernameObrigatorio() async {
+    if (_dialogIsOpen) return;
+    setState(() => _dialogIsOpen = true);
+
+    while (true) {
+      final username = await widget.dataStorageService.getUsername();
+
+      if (username != null && username.isNotEmpty) {
+        break;
+      }
+
+      bool? success = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) {
+          final controller = TextEditingController();
+
+          return StatefulBuilder(
+            builder: (context, setState) {
+              return AlertDialog(
+                title: Text('Escolha seu username'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: controller,
+                      decoration: InputDecoration(
+                        labelText: 'Username',
+                        hintText: '@username',
+                        prefixIcon: Icon(Icons.person),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () async {
+                      final input = controller.text.trim();
+
+                      if (input.isEmpty || input.length < 3 || input.length > 20) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Username deve ter entre 3 e 20 caracteres')),
+                        );
+                        return;
+                      }
+
+                      final validChars = RegExp(r'^[a-zA-Z0-9_]+$');
+                      if (!validChars.hasMatch(input)) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Use apenas letras, números e "_"')),
+                        );
+                        return;
+                      }
+
+                      final isAvailable = await widget.dataStorageService.isUsernameAvailable(input);
+                      if (!isAvailable) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Este username já está em uso')),
+                        );
+                        return;
+                      }
+
+                      final saved = await widget.dataStorageService.setUsername(input);
+                      if (saved && context.mounted) {
+                        Navigator.of(context).pop(true);
+                      }
+                    },
+                    child: Text('Confirmar'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+
+      if (success == true) break;
+    }
+
+    setState(() => _dialogIsOpen = false);
+  }
+
 
   void _showAddBalanceDialog() {
     showDialog(

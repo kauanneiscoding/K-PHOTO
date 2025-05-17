@@ -39,7 +39,7 @@ class UserSyncService {
       final coins = await _dataStorage.getUserCoins();
 
       await _supabase
-        .from('user_coins')
+        .from('user_balance')
         .upsert({
           'user_id': _currentUserId,
           'coins': coins
@@ -237,49 +237,25 @@ class UserSyncService {
     }
   }
 
-  Future<void> syncUserBalance() async {
-    try {
-      final balance = await _dataStorage.getUserCoins();
-      print('💰 Saldo local - K-Coins: ${balance}');
+ Future<void> syncUserBalance() async {
+  if (_currentUserId == null) return;
 
-      // Primeiro, tenta atualizar o saldo existente
-      final updateResult = await _supabase
-        .from('user_coins')
-        .update({'coins': balance})
-        .eq('user_id', _currentUserId)
-        .select();
+  try {
+    final balance = await _dataStorage.getBalance(); // k_coins e star_coins
 
-      // Se a atualização não afetou nenhuma linha, tenta inserir
-      if (updateResult.isEmpty) {
-        await _supabase.from('user_coins').upsert({
-          'user_id': _currentUserId,
-          'coins': balance,
-        });
-      }
+    await _supabase.from('user_balance').upsert({
+      'user_id': _currentUserId,
+      'k_coins': balance['k_coins'],
+      'star_coins': balance['star_coins'],
+      'last_reward_time': await _dataStorage.getLastRewardTime(),
+    }, onConflict: 'user_id'); // <- ESSENCIAL
 
-      print('☁️ Saldo sincronizado com Supabase');
-    } catch (e) {
-      print('❌ Erro ao sincronizar saldo: $e');
-      
-      // Tenta recuperar o saldo existente do Supabase
-      try {
-        final existingBalance = await _supabase
-          .from('user_coins')
-          .select('coins')
-          .eq('user_id', _currentUserId)
-          .single();
-        
-        // Se conseguir recuperar, usa o saldo do Supabase
-        if (existingBalance != null) {
-          final supabaseCoins = existingBalance['coins'] as int;
-          await _dataStorage.updateKCoins(supabaseCoins);
-          print('📊 Saldo atualizado com valor do Supabase: $supabaseCoins');
-        }
-      } catch (recoveryError) {
-        print('❌ Erro ao recuperar saldo do Supabase: $recoveryError');
-      }
-    }
+    print('☁️ Saldo sincronizado com Supabase');
+  } catch (e) {
+    print('❌ Erro ao sincronizar saldo no Supabase: $e');
   }
+}
+
 
   Future<void> syncAllUserData() async {
     if (_currentUserId == null) {
