@@ -270,7 +270,7 @@ class _HomePageState extends State<HomePage> {
             _secondsUntilNextReward--;
           } else {
             _addKCoins();
-            _secondsUntilNextReward = 300; // Reinicia o timer para 5 minutos
+            _secondsUntilNextReward = 180; // Reinicia o timer para 3 minutos
           }
         });
       }

@@ -810,6 +810,96 @@ class DataStorageService {
 }
 
 
+  Future<void> setSelectedFrame(String framePath) async {
+  if (_currentUserId == null) {
+    debugPrint('❌ Tentativa de atualizar frame sem usuário logado');
+    return;
+  }
+
+  try {
+    await _supabaseClient
+      .from('user_profile')
+      .upsert({
+        'user_id': _currentUserId,
+        'selected_frame': framePath,
+        'updated_at': DateTime.now().toIso8601String(),
+      });
+    
+    debugPrint('✅ Frame atualizado com sucesso: $framePath');
+  } catch (e) {
+    debugPrint('❌ Erro ao atualizar frame no Supabase: $e');
+    throw Exception('Falha ao atualizar frame do usuário');
+  }
+}
+
+  Future<String?> getSelectedFrame() async {
+    if (_currentUserId == null) {
+      debugPrint('ℹ️ Tentativa de buscar frame sem usuário logado');
+      return null;
+    }
+
+    try {
+      final response = await _supabaseClient
+        .from('user_profile')
+        .select('selected_frame')
+        .eq('user_id', _currentUserId)
+        .maybeSingle();
+
+      if (response == null) {
+        debugPrint('ℹ️ Nenhum frame encontrado para $_currentUserId');
+        return null;
+      }
+
+      return response['selected_frame'] as String?;
+    } catch (e) {
+      debugPrint('❌ Erro ao buscar frame no Supabase: $e');
+      return null;
+    }
+  }
+
+  Future<void> savePurchasedFrame(String framePath) async {
+    if (_currentUserId == null) {
+      debugPrint('❌ Tentativa de salvar frame comprado sem usuário logado');
+      return;
+    }
+
+    try {
+      await _supabaseClient
+        .from('purchased_frames')
+        .upsert({
+          'user_id': _currentUserId,
+          'frame_path': framePath,
+          'purchased_at': DateTime.now().toIso8601String(),
+        });
+      
+      debugPrint('✅ Frame comprado salvo com sucesso: $framePath');
+    } catch (e) {
+      debugPrint('❌ Erro ao salvar frame comprado no Supabase: $e');
+      throw Exception('Falha ao salvar frame comprado');
+    }
+  }
+
+  Future<List<String>> getPurchasedFrames() async {
+    if (_currentUserId == null) {
+      debugPrint('ℹ️ Tentativa de buscar frames comprados sem usuário logado');
+      return [];
+    }
+
+    try {
+      final response = await _supabaseClient
+        .from('purchased_frames')
+        .select('frame_path')
+        .eq('user_id', _currentUserId);
+
+      final frames = response.map<String>((item) => item['frame_path'] as String).toList();
+      debugPrint('✅ ${frames.length} frames comprados encontrados');
+      return frames;
+    } catch (e) {
+      debugPrint('❌ Erro ao buscar frames comprados no Supabase: $e');
+      return [];
+    }
+  }
+
   Future<void> updateKCoins(int newAmount) async {
     if (_currentUserId == null) return;
     await _supabaseClient
@@ -928,36 +1018,27 @@ class DataStorageService {
   }
 
   Future<void> addPurchasedFrame(String framePath) async {
-    final db = await database;
-    
     if (_currentUserId == null) {
-      throw Exception('Nenhum usuário definido');
+      debugPrint('❌ Tentativa de adicionar frame sem usuário logado');
+      return;
     }
     
     try {
-      await db.insert('purchased_frames', {
-        'user_id': _currentUserId,
-        'frame_path': framePath
-      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      await _supabaseClient
+        .from('purchased_frames')
+        .upsert({
+          'user_id': _currentUserId,
+          'frame_path': framePath,
+          'purchased_at': DateTime.now().toIso8601String(),
+        });
+      
+      debugPrint('✅ Frame adicionado com sucesso: $framePath');
     } catch (e) {
-      print('Erro ao adicionar moldura comprada: $e');
+      debugPrint('❌ Erro ao adicionar frame no Supabase: $e');
+      throw Exception('Falha ao adicionar frame');
     }
   }
 
-  Future<List<String>> getPurchasedFrames() async {
-    final db = await database;
-    
-    if (_currentUserId == null) {
-      throw Exception('Nenhum usuário definido');
-    }
-
-    final results = await db.query(
-      'purchased_frames', 
-      where: 'user_id = ?', 
-      whereArgs: [_currentUserId]
-    );
-    return results.map((row) => row['frame_path'] as String).toList();
-  }
 
   Future<bool> isFramePurchased(String framePath) async {
     final db = await database;

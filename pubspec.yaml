@@ -70,6 +70,7 @@ flutter:
     - assets/your_animation_file.json  # Arquivo Lottie (substitua pelo nome do arquivo)
     - assets/default_profile.png
     - assets/frame/frame_1.png
+    - assets/frame_none.png
     - assets/frame/frame_2.png
     - assets/frame/frame_3.png
     - assets/frame/frame_4.png

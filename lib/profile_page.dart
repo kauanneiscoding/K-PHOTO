@@ -21,11 +21,43 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage> {
   String? profileImagePath;
-  int selectedFrame = 0;
-  final String _selectedFrameKey = 'selected_frame';
+  String selectedFrame = 'assets/frame_none.png';
   List<String> frames = ['assets/frame_none.png'];
   String? _cachedUsername;
   late Future<String?> _usernameFuture;
+  bool _isLoadingFrames = false;
+
+  Future<void> _loadSelectedFrame() async {
+    try {
+      final frame = await widget.dataStorageService.getSelectedFrame();
+      setState(() {
+        selectedFrame = frame ?? 'assets/frame_none.png';
+      });
+    } catch (e) {
+      debugPrint('❌ Erro ao carregar frame selecionado: $e');
+    }
+  }
+
+  Future<void> _loadPurchasedFrames() async {
+    if (_isLoadingFrames) return;
+
+    setState(() {
+      _isLoadingFrames = true;
+    });
+
+    try {
+      final purchasedFrames = await widget.dataStorageService.getPurchasedFrames();
+      setState(() {
+        frames = ['assets/frame_none.png', ...purchasedFrames];
+      });
+    } catch (e) {
+      debugPrint('❌ Erro ao carregar frames comprados: $e');
+    } finally {
+      setState(() {
+        _isLoadingFrames = false;
+      });
+    }
+  }
 
   @override
   void initState() {
@@ -35,25 +67,19 @@ class _ProfilePageState extends State<ProfilePage> {
     _loadPurchasedFrames();
   }
 
-  Future<void> _loadPurchasedFrames() async {
-    final purchasedFrames =
-        await widget.dataStorageService.getPurchasedFrames();
-    setState(() {
-      frames = ['assets/frame_none.png', ...purchasedFrames];
-    });
+  Future<void> _saveSelectedFrame(String frame) async {
+    try {
+      await widget.dataStorageService.setSelectedFrame(frame);
+      setState(() {
+        selectedFrame = frame;
+      });
+      debugPrint('✅ Frame selecionado salvo com sucesso: $frame');
+    } catch (e) {
+      debugPrint('❌ Erro ao salvar frame selecionado: $e');
+    }
   }
 
-  Future<void> _loadSelectedFrame() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      selectedFrame = prefs.getInt(_selectedFrameKey) ?? 0;
-    });
-  }
 
-  Future<void> _saveSelectedFrame(int frame) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_selectedFrameKey, frame);
-  }
 
   Future<void> _pickImage() async {
     final ImagePicker picker = ImagePicker();
@@ -102,7 +128,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         alignment: Alignment.center,
                         children: [
                           ClipPath(
-                            clipper: MolduraClipper(frames[selectedFrame]),
+                            clipper: MolduraClipper(selectedFrame),
                             child: Container(
                               width: 110,
                               height: 110,
@@ -119,7 +145,7 @@ class _ProfilePageState extends State<ProfilePage> {
                             ),
                           ),
                           Image.asset(
-                            frames[selectedFrame],
+                            selectedFrame,
                             width: 120,
                             height: 120,
                             fit: BoxFit.contain,
@@ -189,11 +215,10 @@ class _ProfilePageState extends State<ProfilePage> {
                     Wrap(
                       spacing: 10,
                       runSpacing: 10,
-                      children: allFrames.asMap().entries.map((entry) {
-                        final index = entry.key;
+                      children: frames.map((framePath) {
                         return _buildFrameOption(
-                          index,
-                          index == 0 ? 'Sem moldura' : 'Moldura ${index}',
+                          framePath,
+                          framePath == 'assets/frame_none.png' ? 'Sem moldura' : 'Moldura ${frames.indexOf(framePath)}',
                         );
                       }).toList(),
                     ),
@@ -211,13 +236,10 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  Widget _buildFrameOption(int frameIndex, String label) {
+  Widget _buildFrameOption(String framePath, String label) {
     return GestureDetector(
       onTap: () async {
-        setState(() {
-          selectedFrame = frameIndex;
-        });
-        await _saveSelectedFrame(frameIndex);
+        await _saveSelectedFrame(framePath);
         Navigator.pop(context);
       },
       child: Column(
@@ -228,11 +250,11 @@ class _ProfilePageState extends State<ProfilePage> {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               border: Border.all(
-                color: selectedFrame == frameIndex ? Colors.pink : Colors.grey,
+                color: selectedFrame == framePath ? Colors.pink : Colors.grey,
                 width: 2,
               ),
               image: DecorationImage(
-                image: AssetImage(frames[frameIndex]),
+                image: AssetImage(framePath),
                 fit: BoxFit.cover,
               ),
             ),
