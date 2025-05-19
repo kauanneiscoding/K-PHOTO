@@ -1,5 +1,5 @@
 class Post {
-  int? id;
+  String? id;
   String autor;
   String conteudo;
   String? midia;
@@ -32,21 +32,22 @@ class Post {
 
   // Criar Post a partir de um Map do SQLite
   factory Post.fromMap(Map<String, dynamic> map) {
+    final createdAt = map['created_at'] ?? map['dataPublicacao'];
     return Post(
-      id: map['id'],
-      autor: map['autor'],
-      conteudo: map['conteudo'],
-      midia: map['midia'],
-      curtidas: map['curtidas'] ?? 0,
-      republicacoes: map['republicacoes'] ?? 0,
-      dataPublicacao: DateTime.parse(map['dataPublicacao']),
+      id: map['id']?.toString(),
+      autor: map['username'] ?? map['autor'] ?? 'Usuário Anônimo',  // Provide default for required field
+      conteudo: map['content'] ?? map['conteudo'] ?? '',  // Provide default for required field
+      midia: map['midia_url'] ?? map['midia'],
+      curtidas: map['likes_count'] ?? map['curtidas'] ?? 0,
+      republicacoes: map['reposts_count'] ?? map['republicacoes'] ?? 0,
+      dataPublicacao: createdAt != null ? DateTime.parse(createdAt) : DateTime.now()
     );
   }
 }
 
 class Comentario {
-  int? id;
-  int postId;
+  String? id;
+  String postId;
   String autor;
   String texto;
   DateTime dataCriacao;

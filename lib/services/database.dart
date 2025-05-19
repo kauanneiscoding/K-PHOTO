@@ -30,7 +30,7 @@ class DatabaseHelper {
           // Create posts table
           await db.execute('''
             CREATE TABLE posts (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              id TEXT PRIMARY KEY,
               autor TEXT,
               conteudo TEXT,
               midia TEXT,
@@ -44,8 +44,8 @@ class DatabaseHelper {
           // Create comments table 
           await db.execute('''
             CREATE TABLE comments (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              post_id INTEGER,
+              id TEXT PRIMARY KEY,
+              post_id TEXT,
               user_id TEXT,
               user_name TEXT,
               content TEXT,
@@ -183,8 +183,8 @@ class DatabaseHelper {
         // Recreate the comments table if it doesn't exist
         await db.execute('''
           CREATE TABLE comments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            post_id INTEGER NOT NULL,
+            id TEXT PRIMARY KEY,
+            post_id TEXT NOT NULL,
             user_id TEXT NOT NULL,
             user_name TEXT NOT NULL,
             content TEXT NOT NULL,
@@ -208,7 +208,7 @@ class DatabaseHelper {
     }
   }
 
-  Future<List<Comment>> getCommentsByPostId(int postId) async {
+  Future<List<Comment>> getCommentsByPostId(String postId) async {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query(
       'comments',
@@ -221,7 +221,7 @@ class DatabaseHelper {
     });
   }
 
-  Future<int> getCommentCountByPostId(int postId) async {
+  Future<int> getCommentCountByPostId(String postId) async {
     final db = await database;
     return Sqflite.firstIntValue(await db.query(
       'comments',
@@ -231,7 +231,7 @@ class DatabaseHelper {
     )) ?? 0;
   }
 
-  Future<int> deleteComment(int commentId) async {
+  Future<int> deleteComment(String commentId) async {
     final db = await database;
     return await db.delete(
       'comments', 

@@ -1,10 +1,13 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:uuid/uuid.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/post.dart';
 import '../models/comment.dart';
 import '../services/database.dart';
 import '../data_storage_service.dart';
+import '../services/social_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class FeedPage extends StatefulWidget {
   final DataStorageService dataStorageService;
@@ -21,10 +24,10 @@ class FeedPage extends StatefulWidget {
 class _FeedPageState extends State<FeedPage> {
   final List<Post> _posts = [];
   late DatabaseHelper _dbHelper;
-  final Set<int> _likedPosts = {};
-  final Set<int> _repostedPosts = {};
-  Map<int, List<Comment>> _postComments = {};
-  Map<int, int> _commentCounts = {};
+  final Set<String> _likedPosts = {};
+  final Set<String> _repostedPosts = {};
+  Map<String, List<Comment>> _postComments = {};
+  Map<String, int> _commentCounts = {};
 
   @override
   void initState() {
@@ -36,10 +39,10 @@ class _FeedPageState extends State<FeedPage> {
   }
 
   Future<void> _carregarPosts() async {
-    final posts = await _dbHelper.getPosts();
+    final result = await SocialService().getFeedPosts();
     setState(() {
       _posts.clear();
-      _posts.addAll(posts);
+      _posts.addAll(result.map((map) => Post.fromMap(map)));
     });
   }
 
@@ -47,7 +50,7 @@ class _FeedPageState extends State<FeedPage> {
     final likedPosts = await _dbHelper.getLikedPosts();
     setState(() {
       _likedPosts.clear();
-      _likedPosts.addAll(likedPosts);
+      _likedPosts.addAll(likedPosts.map((id) => id.toString()));
     });
   }
 
@@ -55,66 +58,56 @@ class _FeedPageState extends State<FeedPage> {
     final repostedPosts = await _dbHelper.getRepostedPosts();
     setState(() {
       _repostedPosts.clear();
-      _repostedPosts.addAll(repostedPosts);
+      _repostedPosts.addAll(repostedPosts.map((id) => id.toString()));
     });
   }
 
   Future<void> _criarPost(String conteudo, String? midia) async {
     if (conteudo.isEmpty) return;
-
-    final novoPost = Post(
-      autor: 'Usuário Atual', // Substitua com autenticação real
-      conteudo: conteudo,
-      midia: midia,
-    );
-
-    await _dbHelper.addPost(novoPost);
+    await SocialService().createPost(conteudo, mediaPath: midia);
     await _carregarPosts();
   }
 
   Future<void> _curtirPost(Post post) async {
-    if (_likedPosts.contains(post.id)) {
-      // If already liked, unlike the post
-      await _dbHelper.descurtirPost(post.id!);
-      await _dbHelper.saveLikedPostState(post.id!, false);
-      setState(() {
-        _likedPosts.remove(post.id!);
-      });
-    } else {
-      // If not liked, like the post
-      await _dbHelper.curtirPost(post.id!);
-      await _dbHelper.saveLikedPostState(post.id!, true);
-      setState(() {
-        _likedPosts.add(post.id!);
-      });
-    }
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null || post.id == null) return;
 
-    // Refresh posts to show updated like count
+    final isLiked = _likedPosts.contains(post.id);
+
+    await SocialService().toggleLike(post.id!.toString(), isLiked);
+    setState(() {
+      if (isLiked) {
+        _likedPosts.remove(post.id!);
+      } else {
+        _likedPosts.add(post.id!);
+      }
+    });
+
     await _carregarPosts();
   }
 
   Future<void> _republicarPost(Post post) async {
-    if (_repostedPosts.contains(post.id)) {
-      // If already reposted, unrepost the post
-      await _dbHelper.desrepostarPost(post.id!);
-      await _dbHelper.saveRepostedPostState(post.id!, false);
-      setState(() {
-        _repostedPosts.remove(post.id!);
-      });
-    } else {
-      // If not reposted, repost the post
-      await _dbHelper.republicarPost(post.id!);
-      await _dbHelper.saveRepostedPostState(post.id!, true);
-      setState(() {
-        _repostedPosts.add(post.id!);
-      });
-    }
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null || post.id == null) return;
 
-    // Refresh posts to show updated repost count
+    final isReposted = _repostedPosts.contains(post.id);
+
+    await SocialService().toggleRepost(post.id!.toString(), isReposted);
+    setState(() {
+      if (isReposted) {
+        _repostedPosts.remove(post.id!);
+      } else {
+        _repostedPosts.add(post.id!);
+      }
+    });
+
     await _carregarPosts();
   }
 
   Future<void> _editarPost(Post post) async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null || post.id == null) return;
+
     // Create a text controller with the current post content
     final TextEditingController editController = 
         TextEditingController(text: post.conteudo);
@@ -140,24 +133,8 @@ class _FeedPageState extends State<FeedPage> {
             ),
             ElevatedButton(
               onPressed: () async {
-                // Update the post content
-                final updatedPost = Post(
-                  id: post.id,
-                  autor: post.autor,
-                  conteudo: editController.text,
-                  midia: post.midia,
-                  curtidas: post.curtidas,
-                  republicacoes: post.republicacoes,
-                  dataPublicacao: post.dataPublicacao,
-                );
-
-                // Save the updated post
-                await _dbHelper.updatePost(updatedPost);
-                
-                // Refresh posts
+                await SocialService().editPost(post.id!.toString(), editController.text);
                 await _carregarPosts();
-
-                // Close the dialog
                 Navigator.of(context).pop();
               },
               child: const Text('Salvar'),
@@ -169,6 +146,9 @@ class _FeedPageState extends State<FeedPage> {
   }
 
   Future<void> _excluirPost(Post post) async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null || post.id == null) return;
+
     // Show a confirmation dialog
     final bool? confirmDelete = await showDialog<bool>(
       context: context,
@@ -193,12 +173,12 @@ class _FeedPageState extends State<FeedPage> {
 
     // If confirmed, delete the post
     if (confirmDelete == true) {
-      await _dbHelper.deletePost(post.id!);
+      await SocialService().deletePost(post.id!.toString());
       await _carregarPosts();
     }
   }
 
-  Future<void> _carregarComentarios(int postId) async {
+  Future<void> _carregarComentarios(String postId) async {
     try {
       final comments = await _dbHelper.getCommentsByPostId(postId);
       final commentCount = await _dbHelper.getCommentCountByPostId(postId);
@@ -380,7 +360,7 @@ class _FeedPageState extends State<FeedPage> {
     final TextEditingController _comentarioController = TextEditingController();
     
     // Load comments when modal opens
-    _carregarComentarios(post.id!);
+    _carregarComentarios(post.id!.toString());
 
     showModalBottomSheet(
       context: context,
@@ -522,7 +502,8 @@ class _FeedPageState extends State<FeedPage> {
                         String currentUserName = await _getCurrentUserName();
 
                         final newComment = Comment(
-                          postId: post.id!,
+                          id: const Uuid().v4(),  // Generate a new UUID
+                          postId: post.id!.toString(),
                           userId: currentUserId,
                           userName: currentUserName,
                           content: comentario,
@@ -532,7 +513,7 @@ class _FeedPageState extends State<FeedPage> {
                           await _dbHelper.addComment(newComment);
                           
                           // Reload comments and update the UI
-                          await _carregarComentarios(post.id!);
+                          await _carregarComentarios(post.id!.toString());
                           
                           // Update the modal's state to show new comments
                           setModalState(() {});

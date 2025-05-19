@@ -1,6 +1,6 @@
 class Comment {
-  int? id;
-  int postId;
+  String? id;
+  String postId;
   String userId;
   String userName;
   String content;
@@ -28,12 +28,14 @@ class Comment {
 
   factory Comment.fromMap(Map<String, dynamic> map) {
     return Comment(
-      id: map['id'],
-      postId: map['post_id'],
-      userId: map['user_id'],
-      userName: map['user_name'],
-      content: map['content'],
-      createdAt: DateTime.parse(map['created_at']),
+      id: map['id']?.toString(),
+      postId: map['post_id']?.toString() ?? '',
+      userId: map['user_id']?.toString() ?? '',
+      userName: map['user_name']?.toString() ?? 'Anônimo',
+      content: map['content']?.toString() ?? '',
+      createdAt: map['created_at'] != null
+          ? DateTime.parse(map['created_at'].toString())
+          : DateTime.now(),
     );
   }
 }
