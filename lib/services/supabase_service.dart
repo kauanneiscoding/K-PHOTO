@@ -475,4 +475,94 @@ class SupabaseService {
       print('Erro geral ao deletar usuários sem binders: $e');
     }
   }
+
+  /// Enviar solicitação de amizade
+  Future<void> sendFriendRequest(String receiverId) async {
+    final user = _client.auth.currentUser;
+    if (user == null || receiverId == user.id) return;
+
+    await _client.from('friend_requests').upsert({
+      'sender_id': user.id,
+      'receiver_id': receiverId,
+      'status': 'pending',
+    });
+  }
+
+  /// Aceitar solicitação de amizade
+  Future<void> acceptFriendRequest(String requestId, String senderId) async {
+    final user = _client.auth.currentUser;
+    if (user == null) return;
+
+    // Atualiza a solicitação
+    await _client.from('friend_requests').update({
+      'status': 'accepted',
+    }).eq('id', requestId);
+
+    // Cria a amizade nas duas direções
+    await _client.from('friends').insert([
+      {'user_id': user.id, 'friend_id': senderId},
+      {'user_id': senderId, 'friend_id': user.id},
+    ]);
+  }
+
+  /// Recusar solicitação de amizade
+  Future<void> declineFriendRequest(String requestId) async {
+    await _client.from('friend_requests')
+        .update({'status': 'declined'})
+        .eq('id', requestId);
+  }
+
+  /// Buscar solicitações pendentes recebidas
+  Future<List<Map<String, dynamic>>> getPendingFriendRequests() async {
+    final user = _client.auth.currentUser;
+    if (user == null) return [];
+
+    final response = await _client
+        .from('friend_requests')
+        .select('id, sender_id, status')
+        .eq('receiver_id', user.id)
+        .eq('status', 'pending');
+
+    return List<Map<String, dynamic>>.from(response);
+  }
+
+  /// Buscar lista de amigos
+  Future<List<String>> getFriendIds() async {
+    final user = _client.auth.currentUser;
+    if (user == null) return [];
+
+    final response = await _client
+        .from('friends')
+        .select('friend_id')
+        .eq('user_id', user.id);
+
+    return List<Map<String, dynamic>>.from(response)
+        .map((r) => r['friend_id'] as String)
+        .toList();
+  }
+
+  /// Buscar usuário por username
+  Future<Map<String, dynamic>?> findUserByUsername(String username) async {
+    final response = await _client
+        .from('profiles')
+        .select('id, username, avatar_url')
+        .eq('username', username)
+        .single();
+
+    return response;
+  }
+
+  /// Buscar detalhes dos amigos
+  Future<List<Map<String, dynamic>>> getFriendsDetails() async {
+    final friendIds = await getFriendIds();
+    if (friendIds.isEmpty) return [];
+
+    final response = await _client
+        .from('profiles')
+        .select('id, username, avatar_url, last_seen')
+        .in_('id', friendIds);
+
+    return List<Map<String, dynamic>>.from(response);
+  }
 }
+

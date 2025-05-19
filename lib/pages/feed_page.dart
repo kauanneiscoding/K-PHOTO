@@ -8,6 +8,8 @@ import '../services/database.dart';
 import '../data_storage_service.dart';
 import '../services/social_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:k_photo/friend_page.dart';
+
 
 class FeedPage extends StatefulWidget {
   final DataStorageService dataStorageService;
@@ -571,12 +573,22 @@ class _FeedPageState extends State<FeedPage> {
     return '${dateTime.day}/${dateTime.month}/${dateTime.year}';
   }
 
+  void _navegarParaChat() {
+    // TODO: Implementar navegação para chat
+    print('Navegando para chat...');
+  }
+
+  void _navegarParaAmizades() {
+    // TODO: Implementar navegação para amizades
+    print('Navegando para amizades...');
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'K-Photo Feed', 
+          'K-Feed',
           style: TextStyle(
             fontFamily: 'Nunito',
             fontWeight: FontWeight.bold,
@@ -584,6 +596,87 @@ class _FeedPageState extends State<FeedPage> {
             color: Colors.pink.shade600,
           ),
         ),
+        actions: [
+          Theme(
+            data: Theme.of(context).copyWith(
+              popupMenuTheme: PopupMenuThemeData(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                elevation: 4,
+                color: Colors.white,
+                textStyle: TextStyle(
+                  fontFamily: 'Nunito',
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            child: PopupMenuButton<String>(
+              icon: Icon(Icons.favorite, color: Colors.pink[300], size: 28),
+              offset: const Offset(0, 50),
+              itemBuilder: (context) => [
+                PopupMenuItem<String>(
+                  value: 'chat',
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.purple[50],
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    child: ListTile(
+                      leading: Icon(Icons.chat_bubble_rounded, color: Colors.purple[300], size: 26),
+                      title: Text(
+                        'Chat',
+                        style: TextStyle(
+                          color: Colors.purple[400],
+                          fontFamily: 'Nunito',
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    ),
+                  ),
+                ),
+                PopupMenuItem<String>(
+                  value: 'amizades',
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.blue[50],
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    child: ListTile(
+                      leading: Icon(Icons.favorite_border_rounded, color: Colors.blue[300], size: 26),
+                      title: Text(
+                        'Amizades',
+                        style: TextStyle(
+                          color: Colors.blue[400],
+                          fontFamily: 'Nunito',
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => FriendPage()),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+              onSelected: (value) {
+                if (value == 'chat') {
+                  _navegarParaChat();
+                } else if (value == 'amizades') {
+                  _navegarParaAmizades();
+                }
+              },
+            ),
+          ),
+        ],
         centerTitle: true,
       ),
       body: Column(
