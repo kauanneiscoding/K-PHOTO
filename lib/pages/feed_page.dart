@@ -735,15 +735,16 @@ class _FeedPageState extends State<FeedPage> {
                       ),
                       
                       // Optional media
-                      if (post.midia != null)
+                      if (post.midia != null && post.midia!.isNotEmpty)
                         ClipRRect(
                           borderRadius: const BorderRadius.only(
                             bottomLeft: Radius.circular(15),
                             bottomRight: Radius.circular(15),
                           ),
-                          child: Image.file(
-                            File(post.midia!),
+                          child: Image.network(
+                            post.midia!,
                             width: double.infinity,
+                            height: 200,
                             fit: BoxFit.cover,
                             errorBuilder: (context, error, stackTrace) {
                               return Container(
@@ -753,6 +754,20 @@ class _FeedPageState extends State<FeedPage> {
                                   child: Icon(
                                     Icons.broken_image,
                                     color: Colors.grey,
+                                  ),
+                                ),
+                              );
+                            },
+                            loadingBuilder: (context, child, loadingProgress) {
+                              if (loadingProgress == null) return child;
+                              return Container(
+                                height: 200,
+                                color: Colors.grey[100],
+                                child: Center(
+                                  child: CircularProgressIndicator(
+                                    value: loadingProgress.expectedTotalBytes != null
+                                        ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                                        : null,
                                   ),
                                 ),
                               );
