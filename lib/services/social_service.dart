@@ -8,10 +8,26 @@ class SocialService {
   Future<List<Map<String, dynamic>>> getFeedPosts() async {
     final response = await _supabase
         .from('posts')
-        .select()
+        .select('''
+          *,
+          user_profile!user_id(
+            username,
+            display_name,
+            avatar_url
+          )
+        ''')
         .order('created_at', ascending: false);
 
-    return List<Map<String, dynamic>>.from(response);
+    // Transformar a resposta para o formato esperado
+    return List<Map<String, dynamic>>.from(response).map((post) {
+      final userProfile = post['user_profile'] as Map<String, dynamic>;
+      return {
+        ...post,
+        'username': userProfile['username'],
+        'display_name': userProfile['display_name'],
+        'avatar_url': userProfile['avatar_url'],
+      };
+    }).toList();
   }
 
   Future<String?> uploadImageToSupabase(File imageFile, String userId) async {

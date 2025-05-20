@@ -48,17 +48,19 @@ class SupabaseService {
 
       // Tentar criar perfil do usuário
       try {
-        final profileData = {
-          'id': response.user!.id,
-          'email': email,
+        final userProfile = {
+          'user_id': response.user!.id,
           'username': username ?? email.split('@').first,
+          'display_name': username ?? email.split('@').first,
+          'avatar_url': null,
           'created_at': DateTime.now().toIso8601String(),
+          'last_username_change': DateTime.now().toIso8601String(),
         };
 
-        // Inserir perfil diretamente usando o ID do usuário autenticado
+        // Inserir perfil na tabela user_profile
         final insertResponse = await _client
-          .from('profiles')
-          .upsert(profileData, onConflict: 'id')
+          .from('user_profile')
+          .upsert(userProfile)
           .select();
 
         print('Perfil do usuário criado com sucesso: $insertResponse');
@@ -302,24 +304,74 @@ class SupabaseService {
     final userId = _client.auth.currentUser?.id;
     if (userId == null) return null;
 
-    final response = await _client
-        .from('profiles')
-        .select()
-        .eq('id', userId)
-        .single();
+    try {
+      final response = await _client
+          .from('user_profile')
+          .select()
+          .eq('user_id', userId)
+          .single();
 
-    return response;
+      return response;
+    } catch (e) {
+      debugPrint('❌ Erro ao buscar perfil do usuário: $e');
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> getUserBalance() async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return null;
+
+    try {
+      final response = await _client
+          .from('user_balance')
+          .select()
+          .eq('user_id', userId)
+          .single();
+
+      return response;
+    } catch (e) {
+      // Se o erro for que o registro não existe, criar um novo
+      if (e is PostgrestException && e.code == 'PGRST116') {
+        try {
+          final newBalance = {
+            'user_id': userId,
+            'k_coins': 0,
+            'star_coins': 0,
+            'last_reward_time': DateTime.now().millisecondsSinceEpoch,
+          };
+
+          final insertResponse = await _client
+              .from('user_balance')
+              .upsert(newBalance)
+              .select()
+              .single();
+
+          return insertResponse;
+        } catch (insertError) {
+          debugPrint('❌ Erro ao criar saldo inicial: $insertError');
+          return null;
+        }
+      }
+      debugPrint('❌ Erro ao buscar saldo: $e');
+      return null;
+    }
   }
 
   // Verificar disponibilidade de username
   Future<bool> isUsernameTaken(String username) async {
-    final response = await _client
-        .from('profiles')
-        .select('username')
-        .eq('username', username)
-        .single();
+    try {
+      final response = await _client
+          .from('user_profile')
+          .select('username')
+          .eq('username', username)
+          .maybeSingle();
 
-    return response != null;
+      return response != null;
+    } catch (e) {
+      debugPrint('❌ Erro ao verificar username: $e');
+      return false;
+    }
   }
 
   // Método para obter o ID do usuário atual

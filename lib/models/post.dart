@@ -1,6 +1,8 @@
 class Post {
   String? id;
   String autor;
+  String? displayName;
+  String? avatarUrl;
   String conteudo;
   String? midia;
   int curtidas;
@@ -10,6 +12,8 @@ class Post {
   Post({
     this.id,
     required this.autor,
+    this.displayName,
+    this.avatarUrl,
     required this.conteudo,
     this.midia,
     this.curtidas = 0,
@@ -22,6 +26,8 @@ class Post {
     return {
       'id': id,
       'autor': autor,
+      'display_name': displayName,
+      'avatar_url': avatarUrl,
       'conteudo': conteudo,
       'midia': midia,
       'curtidas': curtidas,
@@ -35,8 +41,10 @@ class Post {
     final createdAt = map['created_at'] ?? map['dataPublicacao'];
     return Post(
       id: map['id']?.toString(),
-      autor: map['username'] ?? map['autor'] ?? 'Usuário Anônimo',  // Provide default for required field
-      conteudo: map['content'] ?? map['conteudo'] ?? '',  // Provide default for required field
+      autor: map['username'] ?? map['autor'] ?? 'Usuário Anônimo',
+      displayName: map['display_name'],
+      avatarUrl: map['avatar_url'],
+      conteudo: map['content'] ?? map['conteudo'] ?? '',
       midia: map['midia_url'] ?? map['midia'],
       curtidas: map['likes_count'] ?? map['curtidas'] ?? 0,
       republicacoes: map['reposts_count'] ?? map['republicacoes'] ?? 0,
