@@ -15,7 +15,8 @@ import 'package:k_photo/services/supabase_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'login_page.dart';
 import 'package:k_photo/services/user_sync_service.dart';
-import 'package:k_photo/pages/feed_page.dart'; // Import the FeedPage
+import 'package:k_photo/pages/feed_page.dart';
+import 'package:k_photo/widgets/username_dialog.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -315,88 +316,18 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _verificarUsernameObrigatorio() async {
-    if (_dialogIsOpen) return;
-    setState(() => _dialogIsOpen = true);
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
 
-    while (true) {
-      final username = await widget.dataStorageService.getUsername();
-
-      if (username != null && username.isNotEmpty) {
-        break;
-      }
-
-      bool? success = await showDialog<bool>(
+    final hasUsername = await SupabaseService().hasUsername(user.id);
+    if (!hasUsername && mounted) {
+      await showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (context) {
-          final controller = TextEditingController();
-
-          return StatefulBuilder(
-            builder: (context, setState) {
-              return AlertDialog(
-                title: Text('Escolha seu username'),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: controller,
-                      decoration: InputDecoration(
-                        labelText: 'Username',
-                        hintText: '@username',
-                        prefixIcon: Icon(Icons.person),
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                  ],
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () async {
-                      final input = controller.text.trim();
-
-                      if (input.isEmpty || input.length < 3 || input.length > 20) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Username deve ter entre 3 e 20 caracteres')),
-                        );
-                        return;
-                      }
-
-                      final validChars = RegExp(r'^[a-zA-Z0-9_]+$');
-                      if (!validChars.hasMatch(input)) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Use apenas letras, números e "_"')),
-                        );
-                        return;
-                      }
-
-                      final isAvailable = await widget.dataStorageService.isUsernameAvailable(input);
-                      if (!isAvailable) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Este username já está em uso')),
-                        );
-                        return;
-                      }
-
-                      final saved = await widget.dataStorageService.setUsername(input);
-                      if (saved && context.mounted) {
-                        Navigator.of(context).pop(true);
-                      }
-                    },
-                    child: Text('Confirmar'),
-                  ),
-                ],
-              );
-            },
-          );
-        },
+        builder: (_) => UsernameDialog(userId: user.id),
       );
-
-      if (success == true) break;
     }
-
-    setState(() => _dialogIsOpen = false);
   }
-
 
   void _showAddBalanceDialog() {
     showDialog(

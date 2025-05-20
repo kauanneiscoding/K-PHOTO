@@ -613,7 +613,45 @@ class _FeedPageState extends State<FeedPage> {
               ),
             ),
             child: PopupMenuButton<String>(
-              icon: Icon(Icons.favorite, color: Colors.pink[300], size: 28),
+              icon: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.pink[100]!,
+                      Colors.pink[50]!,
+                    ],
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.pink[200]!.withOpacity(0.3),
+                      spreadRadius: 1,
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // Efeito de brilho
+                    Icon(
+                      Icons.favorite,
+                      color: Colors.white.withOpacity(0.8),
+                      size: 26,
+                    ),
+                    // Ícone principal
+                    Icon(
+                      Icons.favorite,
+                      color: Colors.pink[300],
+                      size: 24,
+                    ),
+                  ],
+                ),
+              ),
               offset: const Offset(0, 50),
               itemBuilder: (context) => [
                 PopupMenuItem<String>(

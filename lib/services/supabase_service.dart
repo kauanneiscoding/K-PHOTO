@@ -543,13 +543,108 @@ class SupabaseService {
 
   /// Buscar usuário por username
   Future<Map<String, dynamic>?> findUserByUsername(String username) async {
-    final response = await _client
-        .from('profiles')
-        .select('id, username, avatar_url')
-        .eq('username', username)
-        .single();
+    try {
+      final response = await _client
+          .from('user_profile')
+          .select('user_id, username, avatar_url')
+          .eq('username', username)
+          .maybeSingle();
 
-    return response;
+      if (response == null) return null;
+
+      return {
+        'id': response['user_id'],
+        'username': response['username'],
+        'avatar_url': response['avatar_url'],
+      };
+    } catch (e) {
+      print('Erro ao buscar usuário: $e');
+      return null;
+    }
+  }
+
+  /// Buscar username do usuário atual
+  Future<String?> getUsername() async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return null;
+
+    try {
+      final result = await _client
+          .from('user_profile')
+          .select('username')
+          .eq('user_id', userId)
+          .maybeSingle();
+      return result?['username'] as String?;
+    } catch (e) {
+      debugPrint('❌ Erro ao buscar username: $e');
+      return null;
+    }
+  }
+
+  /// Retorna o display name do usuário atual
+  Future<String?> getDisplayName() async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return null;
+
+    try {
+      final result = await _client
+          .from('user_profile')
+          .select('display_name')
+          .eq('user_id', userId)
+          .maybeSingle();
+      return result?['display_name'] as String?;
+    } catch (e) {
+      debugPrint('❌ Erro ao buscar display name: $e');
+      return null;
+    }
+  }
+
+  /// Verifica se o usuário já tem username definido
+  Future<bool> hasUsername(String userId) async {
+    final result = await _client
+        .from('user_profile')
+        .select('username')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    return result != null && result['username'] != null;
+  }
+
+  /// Define o username fixo
+  Future<bool> setUsername(String userId, String username) async {
+    try {
+      await _client.from('user_profile').upsert({
+        'user_id': userId,
+        'username': username,
+        'last_username_change': DateTime.now().toIso8601String(),
+      });
+      debugPrint('✅ Username definido com sucesso: $username');
+      return true;
+    } catch (e) {
+      debugPrint('❌ Erro ao definir username: $e');
+      return false;
+    }
+  }
+
+  /// Retorna o usuário atual
+  User? getCurrentUser() {
+    return _client.auth.currentUser;
+  }
+
+  /// Define ou atualiza o apelido
+  Future<void> updateDisplayName(String displayName) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) throw Exception('Usuário não está logado');
+
+    try {
+      await _client.from('user_profile').update({
+        'display_name': displayName,
+      }).eq('user_id', userId);
+      debugPrint('✅ Display name atualizado com sucesso: $displayName');
+    } catch (e) {
+      debugPrint('❌ Erro ao atualizar display name: $e');
+      rethrow;
+    }
   }
 
   /// Buscar detalhes dos amigos

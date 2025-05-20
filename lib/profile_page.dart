@@ -26,6 +26,15 @@ class _ProfilePageState extends State<ProfilePage> {
   String? _cachedUsername;
   late Future<String?> _usernameFuture;
   bool _isLoadingFrames = false;
+  final _supabaseService = SupabaseService();
+
+  @override
+  void initState() {
+    super.initState();
+    _usernameFuture = _loadUsername();
+    _loadSelectedFrame();
+    _loadPurchasedFrames();
+  }
 
   Future<void> _loadSelectedFrame() async {
     try {
@@ -57,14 +66,6 @@ class _ProfilePageState extends State<ProfilePage> {
         _isLoadingFrames = false;
       });
     }
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _usernameFuture = _loadUsername();
-    _loadSelectedFrame();
-    _loadPurchasedFrames();
   }
 
   Future<void> _saveSelectedFrame(String frame) async {
@@ -373,49 +374,35 @@ class _ProfilePageState extends State<ProfilePage> {
                       return;
                     }
 
-                    final canChange =
-                        await widget.dataStorageService.canChangeUsername();
-                    if (!canChange) {
-                      final nextDate = await widget.dataStorageService
-                          .getNextUsernameChangeDate();
-                      if (nextDate != null) {
-                        final daysLeft =
-                            nextDate.difference(DateTime.now()).inDays;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                                'Você poderá trocar seu username em $daysLeft dias'),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                      }
-                      return;
-                    }
-
-                    final isAvailable = await widget.dataStorageService
-                        .isUsernameAvailable(username);
-                    if (!isAvailable) {
+                    final userId = _supabaseService.getCurrentUser()?.id;
+                    if (userId == null) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content: Text('Este username já está em uso'),
+                          content: Text('Usuário não está logado'),
                           backgroundColor: Colors.red,
                         ),
                       );
                       return;
                     }
 
-                    final success =
-                        await widget.dataStorageService.setUsername(username);
-                    if (success) {
-                      Navigator.pop(context);
+                    try {
+                      await _supabaseService.setUsername(userId, username);
                       setState(() {
                         _cachedUsername = null;
                         _usernameFuture = _loadUsername();
                       });
+                      Navigator.pop(context);
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text('Username definido com sucesso!'),
                           backgroundColor: Colors.green,
+                        ),
+                      );
+                    } catch (e) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Erro ao definir username: $e'),
+                          backgroundColor: Colors.red,
                         ),
                       );
                     }
@@ -432,7 +419,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<String?> _loadUsername() async {
     if (_cachedUsername != null) return _cachedUsername;
-    _cachedUsername = await widget.dataStorageService.getUsername();
+    _cachedUsername = await _supabaseService.getUsername();
     return _cachedUsername;
   }
 
@@ -449,7 +436,10 @@ class _ProfilePageState extends State<ProfilePage> {
                 children: [
                   Container(
                     width: double.infinity,
-                    height: 250,
+                    constraints: BoxConstraints(
+                      minHeight: 250,
+                      maxHeight: 300,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.pink[100],
                       borderRadius: BorderRadius.only(
@@ -490,9 +480,10 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                         Column(
                           mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             _buildProfilePicture(),
-                            SizedBox(height: 10),
+                            SizedBox(height: 8),
                             FutureBuilder<String?>(
                               future: _usernameFuture,
                               builder: (context, snapshot) {
@@ -502,13 +493,31 @@ class _ProfilePageState extends State<ProfilePage> {
                                     strokeWidth: 2,
                                   );
                                 } else if (snapshot.hasData && snapshot.data != null && snapshot.data!.isNotEmpty) {
-                                  return Text(
-                                    '@${snapshot.data}',
-                                    style: TextStyle(
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.white,
-                                    ),
+                                  return FutureBuilder<String?>(
+                                    future: _supabaseService.getDisplayName(),
+                                    builder: (context, displaySnapshot) {
+                                      return Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Text(
+                                            displaySnapshot.data ?? '@${snapshot.data}',
+                                            style: TextStyle(
+                                              fontSize: 24,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                          Text(
+                                            '@${snapshot.data}',
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              color: Colors.white.withOpacity(0.8),
+                                            ),
+                                          ),
+                                        ],
+                                      );
+                                    },
                                   );
                                 } else {
                                   return Text(
