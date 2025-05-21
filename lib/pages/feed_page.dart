@@ -806,10 +806,17 @@ class _FeedPageState extends State<FeedPage> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    post.autor,
+                                    post.displayName ?? post.autor,
                                     style: const TextStyle(
                                       fontWeight: FontWeight.bold,
                                       fontSize: 14,
+                                    ),
+                                  ),
+                                  Text(
+                                    '@${post.autor}',
+                                    style: TextStyle(
+                                      color: Colors.grey[600],
+                                      fontSize: 12,
                                     ),
                                   ),
                                   Text(
