@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:k_photo/config/supabase_config.dart';
@@ -10,19 +11,34 @@ import 'package:k_photo/data_storage_service.dart';
 
 class SupabaseService {
   static final SupabaseService _instance = SupabaseService._internal();
+  final _profileController = StreamController<Map<String, dynamic>?>.broadcast();
+  SupabaseClient _client = Supabase.instance.client;
   
   factory SupabaseService([SupabaseClient? supabaseClient]) {
     if (supabaseClient != null) {
       _instance._client = supabaseClient;
-    } else {
-      _instance._client = Supabase.instance.client;
     }
     return _instance;
   }
 
-  SupabaseService._internal();
-
-  late SupabaseClient _client;
+  SupabaseService._internal() {
+    final userId = _client.auth.currentUser?.id;
+    if (userId != null) {
+      _client.from('user_profile')
+        .stream(primaryKey: ['user_id'])
+        .eq('user_id', userId)
+        .listen(
+          (data) {
+            if (data.isNotEmpty) {
+              _profileController.add(data.first);
+            }
+          },
+          onError: (error) {
+            debugPrint('Erro no stream de perfil: $error');
+          },
+        );
+    }
+  }
 
   // Métodos de Autenticação
   Future<AuthResponse> signUp({
@@ -683,6 +699,9 @@ class SupabaseService {
     return _client.auth.currentUser;
   }
 
+  /// Retorna o stream de atualizações do perfil
+  Stream<Map<String, dynamic>?> get profileStream => _profileController.stream;
+
   /// Define ou atualiza o apelido
   Future<void> updateDisplayName(String displayName) async {
     final userId = _client.auth.currentUser?.id;
@@ -692,6 +711,13 @@ class SupabaseService {
       await _client.from('user_profile').update({
         'display_name': displayName,
       }).eq('user_id', userId);
+      
+      // Buscar perfil atualizado e notificar
+      final profile = await getCurrentUserProfile();
+      if (profile != null) {
+        _profileController.add(profile);
+      }
+      
       debugPrint('✅ Display name atualizado com sucesso: $displayName');
     } catch (e) {
       debugPrint('❌ Erro ao atualizar display name: $e');
@@ -711,5 +737,64 @@ class SupabaseService {
 
     return List<Map<String, dynamic>>.from(response);
   }
-}
 
+  /// Faz upload de uma nova foto de perfil
+  Future<String> uploadProfilePicture(File imageFile) async {
+    try {
+      final userId = getCurrentUser()?.id;
+      if (userId == null) throw Exception('Usuário não está logado');
+
+      final fileExt = path.extension(imageFile.path);
+      final fileName = 'profile_$userId$fileExt';
+      
+      final response = await _client.storage
+          .from('profile_pictures')
+          .upload(fileName, imageFile);
+
+      if (response.isEmpty) {
+        throw Exception('Erro ao fazer upload da imagem');
+      }
+
+      final imageUrl = _client.storage
+          .from('profile_pictures')
+          .getPublicUrl(fileName);
+
+      return imageUrl;
+    } catch (e) {
+      debugPrint('❌ Erro ao fazer upload da foto de perfil: $e');
+      throw Exception('Erro ao fazer upload da imagem: $e');
+    }
+  }
+
+  /// Atualiza o perfil do usuário
+  Future<void> updateUserProfile({
+    String? displayName,
+    String? username,
+    String? avatarUrl,
+    String? frameId,
+  }) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) throw Exception('Usuário não está logado');
+
+    final updates = <String, dynamic>{};
+    if (displayName != null) updates['display_name'] = displayName;
+    if (username != null) updates['username'] = username;
+    if (avatarUrl != null) updates['avatar_url'] = avatarUrl;
+    if (frameId != null) updates['frame_id'] = frameId;
+
+    try {
+      await _client.from('user_profile').update(updates).eq('user_id', userId);
+      
+      // Buscar perfil atualizado e notificar
+      final profile = await getCurrentUserProfile();
+      if (profile != null) {
+        _profileController.add(profile);
+      }
+      
+      debugPrint('✅ Perfil atualizado com sucesso');
+    } catch (e) {
+      debugPrint('❌ Erro ao atualizar perfil: $e');
+      rethrow;
+    }
+  }
+}

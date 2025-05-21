@@ -6,6 +6,8 @@ import 'currency_service.dart';
 import 'data_storage_service.dart';
 import 'package:k_photo/services/supabase_service.dart';
 import 'package:k_photo/login_page.dart';
+import 'package:k_photo/pages/edit_profile_page.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ProfilePage extends StatefulWidget {
   final DataStorageService dataStorageService;
@@ -40,25 +42,28 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _loadUserProfile() async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+
     try {
-      final profile = await _supabaseService.getCurrentUserProfile();
-      if (!mounted) return;
+      final response = await Supabase.instance.client
+          .from('user_profile')
+          .select('username, display_name, avatar_url, selected_frame')
+          .eq('user_id', userId)
+          .maybeSingle();
 
-      if (profile != null) {
-        debugPrint('✅ Perfil carregado com sucesso');
-        debugPrint('📝 Username: ${profile['username']}');
-        debugPrint('👤 Display name: ${profile['display_name']}');
+      debugPrint('🔁 Perfil recarregado: $response');
 
+      if (response != null && mounted) {
         setState(() {
-          _username = profile['username'] as String?;
-          _displayName = profile['display_name'] as String?;
+          _username = response['username'];
+          _displayName = response['display_name'];
+          profileImagePath = response['avatar_url'];
+          selectedFrame = response['selected_frame'] ?? 'assets/frame_none.png';
         });
-      } else {
-        debugPrint('❌ Perfil não encontrado');
       }
-
     } catch (e) {
-      debugPrint('❌ Erro ao carregar perfil: $e');
+      debugPrint('❌ Erro ao recarregar perfil: $e');
     }
   }
 
@@ -533,11 +538,25 @@ class _ProfilePageState extends State<ProfilePage> {
               Align(
                 alignment: Alignment.centerRight,
                 child: ElevatedButton(
-                  onPressed: () {},
+                  onPressed: () async {
+                    final result = await Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => EditProfilePage(
+                        currentDisplayName: _displayName,
+                        currentUsername: _username,
+                        currentPhotoUrl: profileImagePath,
+                        currentFrameId: selectedFrame,
+                      )),
+                    );
+
+                    if (result == 'updated') {
+                      await _loadUserProfile(); // Recarrega os dados do perfil
+                    }
+                  },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.pink[100],
                     foregroundColor: Colors.pink[700],
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(20),
                     ),
