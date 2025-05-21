@@ -42,6 +42,9 @@ flutter:
     - family: Nunito
       fonts:
         - asset: assets/fonts/Nunito-Regular.ttf
+    - family: Pacifico
+      fonts:
+        - asset: assets/fonts/Pacifico-Regular.ttf
 
   assets:
     - assets/lombadabinder2.png

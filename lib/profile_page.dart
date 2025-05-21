@@ -27,13 +27,39 @@ class _ProfilePageState extends State<ProfilePage> {
   late Future<String?> _usernameFuture;
   bool _isLoadingFrames = false;
   final _supabaseService = SupabaseService();
+  String? _username;
+  String? _displayName;
 
   @override
   void initState() {
     super.initState();
-    _usernameFuture = _loadUsername();
+    _loadUsername();
     _loadSelectedFrame();
     _loadPurchasedFrames();
+    _loadUserProfile();
+  }
+
+  Future<void> _loadUserProfile() async {
+    try {
+      final profile = await _supabaseService.getCurrentUserProfile();
+      if (!mounted) return;
+
+      if (profile != null) {
+        debugPrint('✅ Perfil carregado com sucesso');
+        debugPrint('📝 Username: ${profile['username']}');
+        debugPrint('👤 Display name: ${profile['display_name']}');
+
+        setState(() {
+          _username = profile['username'] as String?;
+          _displayName = profile['display_name'] as String?;
+        });
+      } else {
+        debugPrint('❌ Perfil não encontrado');
+      }
+
+    } catch (e) {
+      debugPrint('❌ Erro ao carregar perfil: $e');
+    }
   }
 
   Future<void> _loadSelectedFrame() async {
@@ -65,6 +91,26 @@ class _ProfilePageState extends State<ProfilePage> {
       setState(() {
         _isLoadingFrames = false;
       });
+    }
+  }
+
+  Future<void> _handleLogout() async {
+    try {
+      await _supabaseService.signOut();
+      if (!mounted) return;
+      
+      // Navegar para a tela de login
+      Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+    } catch (e) {
+      debugPrint('❌ Erro ao fazer logout: $e');
+      if (!mounted) return;
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Erro ao fazer logout. Tente novamente.'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -418,139 +464,195 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<String?> _loadUsername() async {
-    if (_cachedUsername != null) return _cachedUsername;
-    _cachedUsername = await _supabaseService.getUsername();
-    return _cachedUsername;
+    if (_cachedUsername != null) {
+      setState(() {
+        _username = _cachedUsername;
+      });
+      return _cachedUsername;
+    }
+
+    try {
+      _cachedUsername = await _supabaseService.getUsername();
+      setState(() {
+        _username = _cachedUsername;
+      });
+      return _cachedUsername;
+    } catch (e) {
+      debugPrint('❌ Erro ao carregar username: $e');
+      return null;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Stack(
-        children: [
-          SingleChildScrollView(
-            child: Padding(
+      body: SafeArea(
+        child: Stack(
+          children: [
+            SingleChildScrollView(
               padding: const EdgeInsets.all(16.0),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Container(
-                    width: double.infinity,
-                    constraints: BoxConstraints(
-                      minHeight: 250,
-                      maxHeight: 300,
+            children: [
+              const SizedBox(height: 20),
+              _buildProfilePicture(),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.pink[50],
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  (_displayName?.isNotEmpty ?? false) ? _displayName! : (_username != null ? _username! : 'Carregando...'),
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontFamily: 'Nunito',
+                    fontWeight: FontWeight.w700,
+                    color: Colors.pink[700],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _username != null ? '@$_username' : 'Carregando...',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey[700],
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Desc',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey[800],
+                ),
+              ),
+              const SizedBox(height: 16),
+              Align(
+                alignment: Alignment.centerRight,
+                child: ElevatedButton(
+                  onPressed: () {},
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.pink[100],
+                    foregroundColor: Colors.pink[700],
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
                     ),
-                    decoration: BoxDecoration(
-                      color: Colors.pink[100],
-                      borderRadius: BorderRadius.only(
-                        bottomLeft: Radius.circular(30),
-                        bottomRight: Radius.circular(30),
-                      ),
+                  ),
+                  child: const Text('Editar perfil'),
+                ),
+              ),
+              const SizedBox(height: 20),
+              // Mural
+              Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.pink[50]!.withOpacity(0.9),
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.pink.withOpacity(0.1),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
                     ),
-                    child: Stack(
-                      alignment: Alignment.center,
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Positioned(
-                          top: 10,
-                          right: 10,
-                          child: IconButton(
-                            icon: Icon(Icons.logout),
-                            onPressed: () async {
-                              try {
-                                // Usar o serviço do Supabase para fazer logout
-                                final supabaseService = SupabaseService();
-                                await supabaseService.signOut();
-
-                                // Navegar para a tela de login, removendo todas as rotas anteriores
-                                Navigator.of(context).pushAndRemoveUntil(
-                                  MaterialPageRoute(builder: (context) => LoginPage()), 
-                                  (Route<dynamic> route) => false
-                                );
-                              } catch (e) {
-                                // Mostrar mensagem de erro se o logout falhar
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('Erro ao fazer logout: $e'),
-                                    backgroundColor: Colors.red,
-                                  )
-                                );
-                              }
-                            },
+                        Text(
+                          'Mural',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.pink[700],
                           ),
                         ),
-                        Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _buildProfilePicture(),
-                            SizedBox(height: 8),
-                            FutureBuilder<String?>(
-                              future: _usernameFuture,
-                              builder: (context, snapshot) {
-                                if (snapshot.connectionState == ConnectionState.waiting) {
-                                  return CircularProgressIndicator(
-                                    color: Colors.white,
-                                    strokeWidth: 2,
-                                  );
-                                } else if (snapshot.hasData && snapshot.data != null && snapshot.data!.isNotEmpty) {
-                                  return FutureBuilder<String?>(
-                                    future: _supabaseService.getDisplayName(),
-                                    builder: (context, displaySnapshot) {
-                                      return Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          Text(
-                                            displaySnapshot.data ?? '@${snapshot.data}',
-                                            style: TextStyle(
-                                              fontSize: 24,
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.white,
-                                            ),
-                                          ),
-                                          Text(
-                                            '@${snapshot.data}',
-                                            style: TextStyle(
-                                              fontSize: 16,
-                                              color: Colors.white.withOpacity(0.8),
-                                            ),
-                                          ),
-                                        ],
-                                      );
-                                    },
-                                  );
-                                } else {
-                                  return Text(
-                                    '@sem_usuario',
-                                    style: TextStyle(
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.white,
-                                    ),
-                                  );
-                                }
-                              },
-                            ),
-                            SizedBox(height: 10),
-                            TextButton(
-                              onPressed: _showFrameSelector,
-                              child: Text(
-                                'Trocar moldura',
-                                style: TextStyle(color: Colors.white),
-                              ),
-                            ),
-                          ],
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[200],
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.favorite, color: Colors.pink[300], size: 16),
+                              const SizedBox(width: 4),
+                              const Text('20032 curtidas'),
+                            ],
+                          ),
                         ),
                       ],
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 16),
+                    GridView.count(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      crossAxisCount: 3,
+                      mainAxisSpacing: 8,
+                      crossAxisSpacing: 8,
+                      children: List.generate(3, (index) {
+                        return Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.pink.withOpacity(0.1),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Image.asset(
+                              'assets/default_profile.png',
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        );
+                      }),
+                    ),
+                    const SizedBox(height: 16),
+                    Center(
+                      child: Text(
+                        "✧.*I'm Just a girl*.✧",
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: Colors.pink[700],
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
+            ],
           ),
-        ],
-      ),
-    );
+        ),
+        Positioned(
+          top: 10,
+          right: 10,
+          child: IconButton(
+            icon: const Icon(
+              Icons.logout_rounded,
+              color: Colors.pink,
+            ),
+            onPressed: _handleLogout,
+          ),
+        ),
+      ],
+    ),
+  ),
+);
   }
 }
 
