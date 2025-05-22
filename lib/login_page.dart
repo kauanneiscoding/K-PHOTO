@@ -20,7 +20,7 @@ class _LoginPageState extends State<LoginPage> {
   bool _isLoading = false;
   bool _isLoginMode = true;
 
-  void _navigateToHomePage() {
+  Future<void> _navigateToHomePage() async {
     // Obter usuário atual
     final user = Supabase.instance.client.auth.currentUser;
     
@@ -45,14 +45,25 @@ class _LoginPageState extends State<LoginPage> {
       if (_dataStorageService.isUserDefined()) {
         print('✅ Usuário definido com sucesso no DataStorageService');
         
+        // Atualizar last_seen no perfil do usuário
+        try {
+          await _supabaseService.updateLastSeen();
+          print('✅ Último acesso atualizado com sucesso');
+        } catch (e) {
+          print('⚠️ Erro ao atualizar last_seen: $e');
+          // Não interrompe o fluxo em caso de falha
+        }
+        
         // Navegar para HomePage
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (context) => main.HomePage(
-              dataStorageService: _dataStorageService,
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (context) => main.HomePage(
+                dataStorageService: _dataStorageService,
+              )
             )
-          )
-        );
+          );
+        }
       } else {
         print('❌ Falha ao definir usuário no DataStorageService');
         ScaffoldMessenger.of(context).showSnackBar(

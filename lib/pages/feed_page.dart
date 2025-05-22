@@ -9,7 +9,7 @@ import '../data_storage_service.dart';
 import '../services/social_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:k_photo/friend_page.dart';
-
+import '../services/supabase_service.dart';
 
 class FeedPage extends StatefulWidget {
   final DataStorageService dataStorageService;
@@ -30,14 +30,27 @@ class _FeedPageState extends State<FeedPage> {
   final Set<String> _repostedPosts = {};
   Map<String, List<Comment>> _postComments = {};
   Map<String, int> _commentCounts = {};
+  late final SupabaseService _supabaseService;
 
   @override
   void initState() {
     super.initState();
     _dbHelper = DatabaseHelper.instance;
+    _supabaseService = SupabaseService();
+    _updateLastSeen();
     _carregarPosts();
     _carregarPostsCurtidos();
     _carregarPostsRepostados();
+  }
+
+  Future<void> _updateLastSeen() async {
+    try {
+      await _supabaseService.updateLastSeen();
+      print('✅ Último acesso atualizado com sucesso no FeedPage');
+    } catch (e) {
+      print('⚠️ Erro ao atualizar last_seen no FeedPage: $e');
+      // Não interrompe o fluxo em caso de falha
+    }
   }
 
   Future<void> _carregarPosts() async {
@@ -795,10 +808,37 @@ class _FeedPageState extends State<FeedPage> {
                         padding: const EdgeInsets.all(10),
                         child: Row(
                           children: [
-                            CircleAvatar(
-                              radius: 20,
-                              backgroundColor: Colors.pink[100],
-                              child: Icon(Icons.person, color: Colors.pink[300]),
+                            Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                // Profile picture
+                                Container(
+                                  width: 40,
+                                  height: 40,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    image: post.avatarUrl != null && post.avatarUrl!.isNotEmpty
+                                        ? DecorationImage(
+                                            image: post.avatarUrl!.startsWith('http')
+                                                ? NetworkImage(post.avatarUrl!) as ImageProvider
+                                                : FileImage(File(post.avatarUrl!)),
+                                            fit: BoxFit.cover,
+                                          )
+                                        : null,
+                                  ),
+                                  child: (post.avatarUrl == null || post.avatarUrl!.isEmpty)
+                                      ? Icon(Icons.person, color: Colors.pink[300])
+                                      : null,
+                                ),
+                                // Frame
+                                if (post.selectedFrame != null && post.selectedFrame != 'assets/frame_none.png')
+                                  Image.asset(
+                                    post.selectedFrame!,
+                                    width: 48,
+                                    height: 48,
+                                    fit: BoxFit.contain,
+                                  ),
+                              ],
                             ),
                             const SizedBox(width: 10),
                             Expanded(
@@ -806,7 +846,9 @@ class _FeedPageState extends State<FeedPage> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    post.displayName ?? post.autor,
+                                    (post.displayName == null || post.displayName!.trim().isEmpty)
+                                        ? (post.autor.trim().isEmpty ? 'Anonymous' : post.autor)
+                                        : post.displayName!,
                                     style: const TextStyle(
                                       fontWeight: FontWeight.bold,
                                       fontSize: 14,

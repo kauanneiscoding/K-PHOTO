@@ -287,6 +287,20 @@ class _FriendPageState extends State<FriendPage> {
     );
   }
 
+  String formatLastSeen(String? lastSeen) {
+    if (lastSeen == null) return 'Online agora';
+
+    final parsed = DateTime.tryParse(lastSeen);
+    if (parsed == null) return 'Online agora';
+
+    final difference = DateTime.now().difference(parsed);
+
+    if (difference.inMinutes < 1) return 'Online agora';
+    if (difference.inMinutes < 60) return 'Visto há ${difference.inMinutes} min';
+    if (difference.inHours < 24) return 'Visto há ${difference.inHours} h';
+    return 'Visto há ${difference.inDays} d';
+  }
+
   Widget _buildFriendList() {
     if (_friends.isEmpty) {
       return Center(
@@ -300,17 +314,81 @@ class _FriendPageState extends State<FriendPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: _friends.map((friend) {
+        final isOnline = isUserOnline(friend['last_seen']);
+        final statusText = isOnline ? 'Online agora' : formatLastSeen(friend['last_seen']);
+        
         return ListTile(
-          leading: CircleAvatar(
-            backgroundImage: friend['avatar_url'] != null
-                ? NetworkImage(friend['avatar_url'])
-                : AssetImage('assets/default_profile.png') as ImageProvider,
+          leading: Stack(
+            children: [
+              CircleAvatar(
+                backgroundColor: Colors.grey[200],
+                child: friend['avatar_url'] != null
+                    ? ClipOval(
+                        child: Image.network(
+                          friend['avatar_url'] as String,
+                          fit: BoxFit.cover,
+                          width: 40,
+                          height: 40,
+                          errorBuilder: (context, error, stackTrace) {
+                            // Show default profile image if there's an error
+                            return Image.asset(
+                              'assets/default_profile.png',
+                              fit: BoxFit.cover,
+                              width: 40,
+                              height: 40,
+                            );
+                          },
+                        ),
+                      )
+                    : Image.asset(
+                        'assets/default_profile.png',
+                        fit: BoxFit.cover,
+                        width: 40,
+                        height: 40,
+                      ),
+              ),
+              if (isOnline)
+                Positioned(
+                  right: 0,
+                  bottom: 0,
+                  child: Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: Colors.green,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Colors.white,
+                        width: 2,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
-          title: Text('@${friend['username']}'),
-          subtitle: Text('Visto há ${friend['last_seen']} minutos'),
+          title: Text(
+            '@${friend['username']}',
+            style: TextStyle(
+              fontWeight: isOnline ? FontWeight.bold : FontWeight.normal,
+            ),
+          ),
+          subtitle: Text(
+            statusText,
+            style: TextStyle(
+              color: isOnline ? Colors.green : null,
+              fontWeight: isOnline ? FontWeight.bold : FontWeight.normal,
+            ),
+          ),
         );
       }).toList(),
     );
+  }
+  
+  bool isUserOnline(String? lastSeen) {
+    if (lastSeen == null) return false;
+    final parsed = DateTime.tryParse(lastSeen);
+    if (parsed == null) return false;
+    return DateTime.now().difference(parsed).inMinutes < 1;
   }
 
   Widget _buildFriendRequests() {

@@ -6,28 +6,46 @@ class SocialService {
 
   // Carregar feed de posts
   Future<List<Map<String, dynamic>>> getFeedPosts() async {
-    final response = await _supabase
-        .from('posts')
-        .select('''
-          *,
-          user_profile!user_id(
-            username,
-            display_name,
-            avatar_url
-          )
-        ''')
-        .order('created_at', ascending: false);
+    try {
+      final response = await _supabase
+          .from('posts')
+          .select('''
+            *,
+            user_profile!user_id(
+              username,
+              display_name,
+              avatar_url,
+              selected_frame
+            )
+          ''')
+          .order('created_at', ascending: false);
 
-    // Transformar a resposta para o formato esperado
-    return List<Map<String, dynamic>>.from(response).map((post) {
-      final userProfile = post['user_profile'] as Map<String, dynamic>;
-      return {
-        ...post,
-        'username': userProfile['username'],
-        'display_name': userProfile['display_name'],
-        'avatar_url': userProfile['avatar_url'],
-      };
-    }).toList();
+      // Transformar a resposta para o formato esperado
+      return List<Map<String, dynamic>>.from(response).map((post) {
+        final userProfile = post['user_profile'] as Map<String, dynamic>?;
+        
+        // Se não houver perfil de usuário, usar valores padrão
+        if (userProfile == null) {
+          return {
+            ...post,
+            'username': 'usuario',
+            'display_name': 'Usuário',
+            'avatar_url': null,
+          };
+        }
+        
+        return {
+          ...post,
+          'username': userProfile['username'] ?? 'usuario',
+          'display_name': userProfile['display_name'] ?? 'Usuário',
+          'avatar_url': userProfile['avatar_url'],
+          'selected_frame': userProfile['selected_frame'],
+        };
+      }).toList();
+    } catch (e) {
+      print('❌ Erro ao carregar posts: $e');
+      return []; // Retorna lista vazia em caso de erro
+    }
   }
 
   Future<String?> uploadImageToSupabase(File imageFile, String userId) async {

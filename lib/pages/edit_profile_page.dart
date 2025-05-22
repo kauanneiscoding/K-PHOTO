@@ -154,6 +154,26 @@ class _EditProfilePageState extends State<EditProfilePage> {
                   ),
                   if (_selectedFrame != 'assets/frame_none.png')
                     Image.asset(_selectedFrame, width: 120, height: 120),
+                  Positioned(
+                    bottom: 0,
+                    right: 0,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.pink[200],
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Colors.white,
+                          width: 2,
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.camera_alt,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),

@@ -3,6 +3,7 @@ class Post {
   String autor;
   String? displayName;
   String? avatarUrl;
+  String? selectedFrame;
   String conteudo;
   String? midia;
   int curtidas;
@@ -14,6 +15,7 @@ class Post {
     required this.autor,
     this.displayName,
     this.avatarUrl,
+    this.selectedFrame,
     required this.conteudo,
     this.midia,
     this.curtidas = 0,
@@ -44,6 +46,7 @@ class Post {
       autor: map['username'] ?? map['autor'] ?? 'Usuário Anônimo',
       displayName: map['display_name'],
       avatarUrl: map['avatar_url'],
+      selectedFrame: map['selected_frame'],
       conteudo: map['content'] ?? map['conteudo'] ?? '',
       midia: map['midia_url'] ?? map['midia'],
       curtidas: map['likes_count'] ?? map['curtidas'] ?? 0,

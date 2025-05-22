@@ -134,103 +134,117 @@ class _ProfilePageState extends State<ProfilePage> {
 
 
   Future<void> _pickImage() async {
-    final ImagePicker picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+    try {
+      final ImagePicker picker = ImagePicker();
+      final XFile? image = await picker.pickImage(source: ImageSource.gallery);
 
-    if (image != null) {
-      setState(() {
-        profileImagePath = image.path;
-      });
+      if (image == null) return;
+
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+
+      // Upload the image to Supabase storage
+      final fileExtension = image.path.split('.').last;
+      final fileName = 'avatar_$userId.${DateTime.now().millisecondsSinceEpoch}.$fileExtension';
+      final file = File(image.path);
+      
+      await Supabase.instance.client.storage
+          .from('avatars')
+          .uploadBinary(
+            fileName, 
+            await file.readAsBytes(),
+            fileOptions: FileOptions(upsert: true, contentType: 'image/$fileExtension'),
+          );
+          
+      // Get the public URL
+      final String imageUrl = Supabase.instance.client.storage
+          .from('avatars')
+          .getPublicUrl(fileName);
+          
+      // Update the user's profile with the new avatar URL
+      await Supabase.instance.client
+          .from('user_profile')
+          .update({'avatar_url': imageUrl})
+          .eq('user_id', userId);
+          
+      if (mounted) {
+        setState(() {
+          profileImagePath = imageUrl;
+        });
+      }
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Foto de perfil atualizada com sucesso!')),
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Erro ao atualizar a foto de perfil: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Erro ao atualizar a foto de perfil')),
+        );
+      }
     }
   }
 
   Widget _buildProfilePicture() {
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        Container(
-          width: 120,
-          height: 120,
-          child: Stack(
-            children: [
-              GestureDetector(
-                onTap: _pickImage,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    if (selectedFrame == 0)
-                      // Imagem circular sem moldura, mas com mesmo tamanho
-                      Container(
-                        width: 110, // Mesmo tamanho da imagem com moldura
-                        height: 110, // Mesmo tamanho da imagem com moldura
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          image: DecorationImage(
-                            image: profileImagePath != null
-                                ? FileImage(File(profileImagePath!))
-                                    as ImageProvider
-                                : AssetImage('assets/default_profile.png'),
-                            fit: BoxFit.cover,
-                          ),
-                        ),
-                      )
-                    else
-                      // Imagem com moldura
-                      Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          ClipPath(
-                            clipper: MolduraClipper(selectedFrame),
-                            child: Container(
-                              width: 110,
-                              height: 110,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                image: DecorationImage(
-                                  image: profileImagePath != null
-                                      ? FileImage(File(profileImagePath!))
-                                          as ImageProvider
-                                      : AssetImage('assets/default_profile.png'),
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
-                            ),
-                          ),
-                          Image.asset(
-                            selectedFrame,
-                            width: 120,
-                            height: 120,
-                            fit: BoxFit.contain,
-                          ),
-                        ],
-                      ),
-                  ],
+    return Container(
+      width: 120,
+      height: 120,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          if (selectedFrame == 0)
+            // Imagem circular sem moldura, mas com mesmo tamanho
+            Container(
+              width: 110, // Mesmo tamanho da imagem com moldura
+              height: 110, // Mesmo tamanho da imagem com moldura
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                image: DecorationImage(
+                  image: profileImagePath != null
+                      ? (profileImagePath!.startsWith('http')
+                          ? NetworkImage(profileImagePath!)
+                          : FileImage(File(profileImagePath!)) as ImageProvider)
+                      : const AssetImage('assets/default_profile.png'),
+                  fit: BoxFit.cover,
                 ),
               ),
-              Positioned(
-                bottom: 0,
-                right: 0,
-                child: Container(
-                  padding: EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: Colors.pink[200],
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: Colors.white,
-                      width: 2,
+            )
+          else
+            // Imagem com moldura
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                ClipPath(
+                  clipper: MolduraClipper(selectedFrame),
+                  child: Container(
+                    width: 110,
+                    height: 110,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      image: DecorationImage(
+                        image: profileImagePath != null
+                            ? (profileImagePath!.startsWith('http')
+                                ? NetworkImage(profileImagePath!)
+                                : FileImage(File(profileImagePath!)) as ImageProvider)
+                            : const AssetImage('assets/default_profile.png'),
+                        fit: BoxFit.cover,
+                      ),
                     ),
                   ),
-                  child: Icon(
-                    Icons.camera_alt,
-                    color: Colors.white,
-                    size: 20,
-                  ),
                 ),
-              ),
-            ],
-          ),
-        ),
-      ],
+                Image.asset(
+                  selectedFrame,
+                  width: 120,
+                  height: 120,
+                  fit: BoxFit.contain,
+                ),
+              ],
+            ),
+        ],
+      ),
     );
   }
 

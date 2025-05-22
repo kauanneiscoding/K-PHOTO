@@ -549,6 +549,25 @@ class SupabaseService {
     final user = _client.auth.currentUser;
     if (user == null || receiverId == user.id) return;
 
+    // Verificar se já existe uma solicitação pendente entre os usuários
+    final existingRequest = await _client
+        .from('friend_requests')
+        .select()
+        .or('and(sender_id.eq.${user.id},receiver_id.eq.$receiverId),and(sender_id.eq.$receiverId,receiver_id.eq.${user.id})')
+        .in_('status', ['pending', 'accepted'])
+        .maybeSingle();
+
+    if (existingRequest != null) {
+      if (existingRequest['status'] == 'accepted') {
+        throw Exception('Vocês já são amigos!');
+      } else if (existingRequest['sender_id'] == user.id) {
+        throw Exception('Você já enviou uma solicitação para este usuário.');
+      } else {
+        throw Exception('Este usuário já te enviou uma solicitação de amizade.');
+      }
+    }
+
+    // Se não houver solicitação existente, criar uma nova
     await _client.from('friend_requests').upsert({
       'sender_id': user.id,
       'receiver_id': receiverId,
@@ -725,18 +744,42 @@ class SupabaseService {
     }
   }
 
+  /// Atualiza o último acesso do usuário
+  Future<void> updateLastSeen() async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return;
+
+    await _client
+        .from('user_profile')
+        .update({'last_seen': DateTime.now().toIso8601String()})
+        .eq('user_id', userId);
+  }
+
   /// Buscar detalhes dos amigos
   Future<List<Map<String, dynamic>>> getFriendsDetails() async {
-    final friendIds = await getFriendIds();
-    if (friendIds.isEmpty) return [];
+  final userId = _client.auth.currentUser?.id;
+  if (userId == null) return [];
 
-    final response = await _client
-        .from('profiles')
-        .select('id, username, avatar_url, last_seen')
-        .in_('id', friendIds);
+  // Primeiro, buscar todos os friend_ids do usuário atual
+  final friendIdsResponse = await _client
+      .from('friends')
+      .select('friend_id')
+      .eq('user_id', userId);
 
-    return List<Map<String, dynamic>>.from(response);
-  }
+  final friendIds = friendIdsResponse
+      .map((e) => e['friend_id'] as String)
+      .toList();
+
+  if (friendIds.isEmpty) return [];
+
+  // Agora buscar os detalhes dos amigos com base nos IDs
+  final detailsResponse = await _client
+      .from('user_profile')
+      .select('user_id, username, display_name, avatar_url, last_seen')
+      .in_('user_id', friendIds);
+
+  return List<Map<String, dynamic>>.from(detailsResponse);
+}
 
   /// Faz upload de uma nova foto de perfil
   Future<String> uploadProfilePicture(File imageFile) async {
