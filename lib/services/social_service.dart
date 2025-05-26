@@ -8,57 +8,52 @@ class SocialService {
 
   // Carregar feed de posts
   Future<List<Map<String, dynamic>>> getFeedPosts() async {
-    final userId = _supabase.auth.currentUser?.id;
-    if (userId == null) return [];
+  final userId = _supabase.auth.currentUser?.id;
+  if (userId == null) return [];
 
-    try {
-      final response = await _supabase
-          .from('posts')
-          .select('''
-            *,
-            user_profile!user_id(
-              username,
-              display_name,
-              avatar_url,
-              selected_frame
-            ),
-            likes!post_id(user_id),
-            likes_count:likes(count)
-          ''')
-          .order('created_at', ascending: false);
+  try {
+    final response = await _supabase
+        .from('posts')
+        .select('''
+          *,
+          user_profile!user_id(
+            username,
+            display_name,
+            avatar_url,
+            selected_frame
+          ),
+          likes!post_id(user_id),
+          lives!post_id(user_id),
+          lives_count:lives(count)
+        ''')
+        .order('created_at', ascending: false);
 
-      return List<Map<String, dynamic>>.from(response).map((post) {
-        final userProfile = post['user_profile'] as Map<String, dynamic>?;
-        final likes = post['likes'] as List<dynamic>? ?? [];
-        final likesCount = (post['likes_count'] as List<dynamic>?)?.firstOrNull?['count'] ?? 0;
-        
-        final basePost = userProfile == null
-            ? {
-                ...post,
-                'username': 'usuario',
-                'display_name': 'Usuário',
-                'avatar_url': null,
-                'likes_count': likesCount,
-              }
-            : {
-                ...post,
-                'username': userProfile['username'] ?? 'usuario',
-                'display_name': userProfile['display_name'] ?? 'Usuário',
-                'avatar_url': userProfile['avatar_url'],
-                'selected_frame': userProfile['selected_frame'],
-                'likes_count': likesCount,
-              };
-        
-        return {
-          ...basePost,
-          'is_liked': likes.any((like) => like['user_id'] == userId),
-        };
-      }).toList();
-    } catch (e) {
-      print('❌ Erro ao carregar posts: $e');
-      return [];
-    }
+    return List<Map<String, dynamic>>.from(response).map((post) {
+      final userProfile = post['user_profile'] as Map<String, dynamic>?;
+      final likes = post['likes'] as List<dynamic>? ?? [];
+      final lives = post['lives'] as List<dynamic>? ?? [];
+
+      final isLiked = likes.any((like) => like['user_id'] == userId);
+      final isLived = lives.any((live) => live['user_id'] == userId);
+
+      return {
+        ...post,
+        'username': userProfile?['username'] ?? 'usuario',
+        'display_name': userProfile?['display_name'] ?? 'Usuário',
+        'avatar_url': userProfile?['avatar_url'],
+        'selected_frame': userProfile?['selected_frame'],
+        'is_liked': isLiked,
+        'likes_count': post['likes_count'] ?? 0,
+        'is_lived': isLived,
+        'lives_count': post['lives_count'] ?? 0,
+      };
+    }).toList();
+  } catch (e) {
+    print('❌ Erro ao carregar posts: $e');
+    return [];
   }
+}
+
 
   Future<String?> uploadImageToSupabase(File imageFile, String userId) async {
   try {
@@ -100,31 +95,36 @@ class SocialService {
   /// Toggles a like on a post
   /// If the post is already liked, removes the like
   /// If the post is not liked, adds a like
- Future<void> toggleLike(String postId, bool isLiked) async {
-  try {
+  Future<void> toggleLike(String postId, bool isLiked) async {
     final userId = _supabase.auth.currentUser?.id;
-    if (userId == null) throw Exception('User not authenticated');
+    if (userId == null) return;
 
-    if (isLiked) {
-      // Remove o like
-      await _supabase
-          .from('likes')
-          .delete()
-          .eq('user_id', userId)
-          .eq('post_id', postId);
-    } else {
-      // Adiciona o like
-      await _supabase.from('likes').insert({
-        'user_id': userId,
-        'post_id': postId,
-        'created_at': DateTime.now().toIso8601String(),
+    try {
+      if (isLiked) {
+        // Remove o like
+        await _supabase
+            .from('likes')
+            .delete()
+            .eq('user_id', userId)
+            .eq('post_id', postId);
+      } else {
+        // Adiciona o like
+        await _supabase.from('likes').insert({
+          'user_id': userId,
+          'post_id': postId,
+          'created_at': DateTime.now().toIso8601String(),
+        });
+      }
+
+      // Atualizar contador de likes
+      await _supabase.rpc('update_post_likes_count', params: {
+        'post_id_param': postId,
       });
+    } catch (e) {
+      print('❌ Erro ao curtir/descurtir: $e');
+      rethrow;
     }
-  } catch (e) {
-    print('❌ Error toggling like: $e');
-    rethrow;
   }
-}
 
 
   /// Gets the number of likes for a post
@@ -142,37 +142,44 @@ class SocialService {
   }
 
   /// Toggles a repost on a post
-  /// Returns true if the post is now reposted, false otherwise
-  Future<bool> toggleRepost(String postId, bool isReposted) async {
-    try {
-      final user = _supabase.auth.currentUser;
-      if (user == null) throw Exception('User not authenticated');
+Future<void> toggleLive(String postId, bool isReposted) async {
+  try {
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) throw Exception('User not authenticated');
 
-      if (isReposted) {
-        await _supabase
-            .from('reposts')
-            .delete()
-            .match({'post_id': postId, 'user_id': user.id});
-        return false;
-      } else {
-        await _supabase.from('reposts').insert({
-          'post_id': postId,
-          'user_id': user.id,
-          'created_at': DateTime.now().toIso8601String(),
-        });
-        return true;
-      }
-    } catch (e) {
-      print('❌ Error toggling repost: $e');
-      rethrow;
+    if (isReposted) {
+      // Remove o repost
+      await _supabase
+          .from('lives')
+          .delete()
+          .eq('user_id', userId)
+          .eq('post_id', postId);
+    } else {
+      // Adiciona o repost
+      await _supabase.from('lives').insert({
+        'user_id': userId,
+        'post_id': postId,
+        'created_at': DateTime.now().toIso8601String(),
+      });
     }
+
+    // Atualiza contador de lives
+    await _supabase.rpc('update_post_lives_count', params: {
+      'post_id_param': postId,
+    });
+  } catch (e) {
+    print('❌ Error toggling live: $e');
+    rethrow;
   }
+}
+
+
 
   /// Gets the number of reposts for a post
-  Future<int> getRepostCount(String postId) async {
+  Future<int> getLivesCount(String postId) async {
     try {
       final response = await _supabase
-          .from('reposts')
+          .from('lives')
           .select('id', const FetchOptions(count: CountOption.exact))
           .eq('post_id', postId);
       return response.count ?? 0;

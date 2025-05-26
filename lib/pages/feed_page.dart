@@ -130,7 +130,7 @@ class _FeedPageState extends State<FeedPage> {
 
     final isReposted = _repostedPosts.contains(post.id);
 
-    await SocialService().toggleRepost(post.id!.toString(), isReposted);
+    await SocialService().toggleLive(post.id!.toString(), isReposted);
     setState(() {
       if (isReposted) {
         _repostedPosts.remove(post.id!);
@@ -140,6 +140,18 @@ class _FeedPageState extends State<FeedPage> {
     });
 
     await _carregarPosts();
+  }
+
+  void _repostar(Post post) async {
+    try {
+      await SocialService().toggleLive(post.id!, post.isReposted);
+      setState(() {
+        post.isReposted = !post.isReposted;
+        post.repostsCount += post.isReposted ? 1 : -1;
+      });
+    } catch (e) {
+      print('Erro ao repostar: $e');
+    }
   }
 
   Future<void> _editarPost(Post post) async {
@@ -1007,8 +1019,8 @@ class _FeedPageState extends State<FeedPage> {
                             _buildInteractionButton(
                               icon: Icons.repeat_outlined,
                               count: post.repostsCount,
-                              onPressed: () => _republicarPost(post),
-                              color: Colors.blue[300]!,
+                              onPressed: () => _repostar(post),
+                              color: Colors.blue,
                               isReposted: post.isReposted,
                             ),
                           ],
