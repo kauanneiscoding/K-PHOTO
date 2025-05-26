@@ -1,7 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/post.dart';
-import '../models/comment.dart';
+import '../models/comment.dart' as comment_model;
 
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
@@ -151,109 +151,100 @@ class DatabaseHelper {
     );
   }
 
-  // Comentários
-  Future<int> addComentario(Comentario comentario) async {
-    final db = await database;
-    return await db.insert('comentarios', comentario.toMap());
-  }
+  // Old comment methods - kept for backward compatibility
+  @Deprecated('Use addComment instead')
+  Future<int> addComentario(comment_model.Comment comment) => addComment(comment);
 
-  Future<List<Comentario>> getComentarios(int postId) async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      'comentarios', 
-      where: 'postId = ?', 
-      whereArgs: [postId],
-      orderBy: 'dataCriacao ASC'
-    );
-    return List.generate(maps.length, (i) => Comentario.fromMap(maps[i]));
-  }
+  @Deprecated('Use getCommentsByPostId instead')
+  Future<List<comment_model.Comment>> getComentarios(String postId) => getCommentsByPostId(postId);
 
-  // Comentários (new)
-  Future<int> addComment(Comment comment) async {
+  // Comments
+  Future<int> addComment(comment_model.Comment comment) async {
     try {
       final db = await database;
-      print('Attempting to add comment: ${comment.toMap()}');
       
-      // Verify comments table exists
-      final tables = await db.rawQuery(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='comments';"
-      );
+      // Ensure comments table exists
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS comments (
+          id TEXT PRIMARY KEY,
+          post_id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          content TEXT NOT NULL,
+          username TEXT,
+          avatar_url TEXT,
+          created_at TEXT NOT NULL,
+          is_owner INTEGER DEFAULT 0
+        )
+      ''');
       
-      if (tables.isEmpty) {
-        // Recreate the comments table if it doesn't exist
-        await db.execute('''
-          CREATE TABLE comments (
-            id TEXT PRIMARY KEY,
-            post_id TEXT NOT NULL,
-            user_id TEXT NOT NULL,
-            user_name TEXT NOT NULL,
-            content TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY (post_id) REFERENCES posts (id)
-          )
-        ''');
-        print('Comments table recreated dynamically');
-      }
-
-      // Ensure created_at is always set
-      final commentMap = comment.toMap();
-      commentMap['created_at'] = DateTime.now().toIso8601String();
-
-      return await db.insert('comments', commentMap);
+      // Insert the comment
+      return await db.insert('comments', comment.toMap());
     } catch (e) {
       print('Error adding comment: $e');
-      // Log the full error details
-      print('Comment data: ${comment.toMap()}');
+      rethrow;
+    }
+  }
+  
+  Future<List<comment_model.Comment>> getCommentsByPostId(String postId) async {
+    try {
+      final db = await database;
+      final List<Map<String, dynamic>> maps = await db.query(
+        'comments',
+        where: 'post_id = ?',
+        whereArgs: [postId],
+        orderBy: 'created_at ASC'
+      );
+      return List.generate(maps.length, (i) => comment_model.Comment.fromMap(maps[i]));
+    } catch (e) {
+      print('Error getting comments: $e');
+      return [];
+    }
+  }
+  
+  Future<int> getCommentCountByPostId(String postId) async {
+    try {
+      final db = await database;
+      return Sqflite.firstIntValue(await db.rawQuery(
+        'SELECT COUNT(*) FROM comments WHERE post_id = ?',
+        [postId]
+      )) ?? 0;
+    } catch (e) {
+      print('Error getting comment count: $e');
+      return 0;
+    }
+  }
+  
+  Future<int> deleteComment(String commentId) async {
+    try {
+      final db = await database;
+      return await db.delete(
+        'comments',
+        where: 'id = ?',
+        whereArgs: [commentId],
+      );
+    } catch (e) {
+      print('Error deleting comment: $e');
       rethrow;
     }
   }
 
-  Future<List<Comment>> getCommentsByPostId(String postId) async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      'comments',
-      where: 'post_id = ?',
-      whereArgs: [postId],
-      orderBy: 'created_at DESC',
-    );
-    return List.generate(maps.length, (i) {
-      return Comment.fromMap(maps[i]);
-    });
-  }
-
-  Future<int> getCommentCountByPostId(String postId) async {
-    final db = await database;
-    return Sqflite.firstIntValue(await db.query(
-      'comments',
-      columns: ['COUNT(*)'],
-      where: 'post_id = ?',
-      whereArgs: [postId],
-    )) ?? 0;
-  }
-
-  Future<int> deleteComment(String commentId) async {
-    final db = await database;
-    return await db.delete(
-      'comments', 
-      where: 'id = ?', 
-      whereArgs: [commentId]
-    );
-  }
-
-  // Liked Posts
-  Future<void> _ensureLikedPostsTableExists(Database db) async {
+  Future<void> _ensureTableExists(Database db, String tableName, String tableQuery) async {
     final tableExists = await db.rawQuery(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='liked_posts'"
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='$tableName'"
     );
   
     if (tableExists.isEmpty) {
-      await db.execute('''
-        CREATE TABLE IF NOT EXISTS liked_posts (
-          post_id INTEGER PRIMARY KEY,
-          is_liked INTEGER DEFAULT 0
-        )
-      ''');
+      await db.execute(tableQuery);
     }
+  }
+
+  Future<void> _ensureLikedPostsTableExists(Database db) async {
+    await _ensureTableExists(db, 'liked_posts', '''
+      CREATE TABLE IF NOT EXISTS liked_posts (
+        post_id INTEGER PRIMARY KEY,
+        is_liked INTEGER DEFAULT 0
+      )
+    ''');
   }
 
   Future<void> saveLikedPostState(int postId, bool isLiked) async {

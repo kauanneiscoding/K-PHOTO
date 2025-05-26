@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/post.dart';
-import '../models/comment.dart';
+import '../models/comment.dart' as comment_model;
 import '../services/database.dart';
 import '../data_storage_service.dart';
 import '../services/social_service.dart';
@@ -28,7 +28,7 @@ class _FeedPageState extends State<FeedPage> {
   late DatabaseHelper _dbHelper;
   final Set<String> _likedPosts = {};
   final Set<String> _repostedPosts = {};
-  Map<String, List<Comment>> _postComments = {};
+  Map<String, List<comment_model.Comment>> _postComments = {};
   Map<String, int> _commentCounts = {};
   late final SupabaseService _supabaseService;
 
@@ -83,22 +83,45 @@ class _FeedPageState extends State<FeedPage> {
     await _carregarPosts();
   }
 
+
   Future<void> _curtirPost(Post post) async {
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null || post.id == null) return;
 
-    final isLiked = _likedPosts.contains(post.id);
-
-    await SocialService().toggleLike(post.id!.toString(), isLiked);
-    setState(() {
-      if (isLiked) {
-        _likedPosts.remove(post.id!);
-      } else {
-        _likedPosts.add(post.id!);
-      }
-    });
-
-    await _carregarPosts();
+    try {
+      // Toggle the like status using the SocialService
+      await SocialService().toggleLike(post.id!, post.isLiked);
+      
+      // Update the local state to reflect the change
+      setState(() {
+        final index = _posts.indexWhere((p) => p.id == post.id);
+        if (index != -1) {
+          // Toggle the isLiked status
+          final newIsLiked = !post.isLiked;
+          // Update the likes count
+          final newLikesCount = newIsLiked 
+              ? post.likesCount + 1 
+              : (post.likesCount > 0 ? post.likesCount - 1 : 0);
+              
+          _posts[index] = _posts[index].copyWith(
+            isLiked: newIsLiked,
+            likesCount: newLikesCount,
+          );
+        }
+      });
+      
+      // Refresh the posts to ensure consistency with the server
+      await _carregarPosts();
+    } catch (e) {
+      print('❌ Erro ao curtir/descurtir post: $e');
+      // Optionally show an error message to the user
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erro ao processar sua curtida. Tente novamente.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Future<void> _republicarPost(Post post) async {
@@ -125,7 +148,7 @@ class _FeedPageState extends State<FeedPage> {
 
     // Create a text controller with the current post content
     final TextEditingController editController = 
-        TextEditingController(text: post.conteudo);
+        TextEditingController(text: post.content);
 
     // Show a dialog to edit the post
     await showDialog(
@@ -207,7 +230,7 @@ class _FeedPageState extends State<FeedPage> {
     }
   }
 
-  Future<void> _deletarComentario(Comment comment, StateSetter? setModalState) async {
+  Future<void> _deletarComentario(comment_model.Comment comment, StateSetter? setModalState) async {
     try {
       await _dbHelper.deleteComment(comment.id!);
       
@@ -516,12 +539,13 @@ class _FeedPageState extends State<FeedPage> {
                         String currentUserId = await _getCurrentUserId();
                         String currentUserName = await _getCurrentUserName();
 
-                        final newComment = Comment(
+                        final newComment = comment_model.Comment(
                           id: const Uuid().v4(),  // Generate a new UUID
-                          postId: post.id!.toString(),
+                          postId: post.id!,
                           userId: currentUserId,
-                          userName: currentUserName,
                           content: comentario,
+                          userName: currentUserName,
+                          createdAt: DateTime.now(),
                         );
 
                         try {
@@ -847,7 +871,7 @@ class _FeedPageState extends State<FeedPage> {
                                 children: [
                                   Text(
                                     (post.displayName == null || post.displayName!.trim().isEmpty)
-                                        ? (post.autor.trim().isEmpty ? 'Anonymous' : post.autor)
+                                        ? (post.username?.trim().isEmpty ?? true ? 'Anonymous' : post.username ?? 'user')
                                         : post.displayName!,
                                     style: const TextStyle(
                                       fontWeight: FontWeight.bold,
@@ -855,14 +879,14 @@ class _FeedPageState extends State<FeedPage> {
                                     ),
                                   ),
                                   Text(
-                                    '@${post.autor}',
+                                    '@${post.username ?? 'user'}',
                                     style: TextStyle(
                                       color: Colors.grey[600],
                                       fontSize: 12,
                                     ),
                                   ),
                                   Text(
-                                    _formatPostDate(post.dataPublicacao),
+                                    _formatPostDate(post.createdAt),
                                     style: TextStyle(
                                       color: Colors.grey[600],
                                       fontSize: 12,
@@ -906,7 +930,7 @@ class _FeedPageState extends State<FeedPage> {
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
                         child: Text(
-                          post.conteudo,
+                          post.content,
                           style: const TextStyle(
                             fontSize: 15,
                             height: 1.4,
@@ -915,14 +939,14 @@ class _FeedPageState extends State<FeedPage> {
                       ),
                       
                       // Optional media
-                      if (post.midia != null && post.midia!.isNotEmpty)
+                      if (post.mediaUrl != null && post.mediaUrl!.isNotEmpty)
                         ClipRRect(
                           borderRadius: const BorderRadius.only(
                             bottomLeft: Radius.circular(15),
                             bottomRight: Radius.circular(15),
                           ),
                           child: Image.network(
-                            post.midia!,
+                            post.mediaUrl!,
                             width: double.infinity,
                             height: 200,
                             fit: BoxFit.cover,
@@ -962,15 +986,13 @@ class _FeedPageState extends State<FeedPage> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             // Like button
+                            // Like button
                             _buildInteractionButton(
-                              icon: _likedPosts.contains(post.id) 
-                                  ? Icons.favorite 
-                                  : Icons.favorite_border,
-                              count: post.curtidas,
+                              icon: Icons.favorite_border,
+                              count: post.likesCount,
                               onPressed: () => _curtirPost(post),
-                              color: _likedPosts.contains(post.id) 
-                                  ? Colors.pink 
-                                  : Colors.pink[300]!,
+                              color: Colors.pink[300]!,
+                              isLiked: post.isLiked,
                             ),
                             
                             // Comment button
@@ -983,14 +1005,11 @@ class _FeedPageState extends State<FeedPage> {
                             
                             // Repost button
                             _buildInteractionButton(
-                              icon: _repostedPosts.contains(post.id) 
-                                  ? Icons.repeat 
-                                  : Icons.repeat_outlined,
-                              count: post.republicacoes,
+                              icon: Icons.repeat_outlined,
+                              count: post.repostsCount,
                               onPressed: () => _republicarPost(post),
-                              color: _repostedPosts.contains(post.id) 
-                                  ? Colors.blue 
-                                  : Colors.blue[300]!,
+                              color: Colors.blue[300]!,
+                              isReposted: post.isReposted,
                             ),
                           ],
                         ),
@@ -1025,7 +1044,38 @@ class _FeedPageState extends State<FeedPage> {
     required int count,
     required VoidCallback onPressed,
     required Color color,
+    bool isLiked = false,
+    bool isReposted = false,
   }) {
+    // Determine the icon to display based on the interaction type and state
+    Widget getIcon() {
+      if (icon == Icons.favorite_border || icon == Icons.favorite) {
+        return Icon(
+          isLiked ? Icons.favorite : Icons.favorite_border,
+          color: isLiked ? Colors.pink : color,
+          size: 20,
+        );
+      } else if (icon == Icons.repeat_outlined || icon == Icons.repeat) {
+        return Icon(
+          isReposted ? Icons.repeat : Icons.repeat_outlined,
+          color: isReposted ? Colors.blue : color,
+          size: 20,
+        );
+      } else {
+        return Icon(icon, color: color, size: 20);
+      }
+    }
+
+    // Determine the text color based on the interaction state
+    Color getTextColor() {
+      if (isLiked && (icon == Icons.favorite_border || icon == Icons.favorite)) {
+        return Colors.pink;
+      } else if (isReposted && (icon == Icons.repeat_outlined || icon == Icons.repeat)) {
+        return Colors.blue;
+      }
+      return color;
+    }
+
     return GestureDetector(
       onTap: onPressed,
       child: Container(
@@ -1036,12 +1086,12 @@ class _FeedPageState extends State<FeedPage> {
         ),
         child: Row(
           children: [
-            Icon(icon, color: color, size: 20),
+            getIcon(),
             const SizedBox(width: 5),
             Text(
               count.toString(),
               style: TextStyle(
-                color: color,
+                color: getTextColor(),
                 fontWeight: FontWeight.bold,
               ),
             ),
