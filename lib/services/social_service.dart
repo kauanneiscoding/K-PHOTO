@@ -7,7 +7,7 @@ class SocialService {
   final SupabaseClient _supabase = Supabase.instance.client;
 
   // Carregar feed de posts
-  Future<List<Map<String, dynamic>>> getFeedPosts() async {
+Future<List<Map<String, dynamic>>> getFeedPosts() async {
   final userId = _supabase.auth.currentUser?.id;
   if (userId == null) return [];
 
@@ -23,8 +23,8 @@ class SocialService {
             selected_frame
           ),
           likes!post_id(user_id),
-          lives!post_id(user_id),
-          lives_count:lives(count)
+          lives!post_id(user_id)
+          
         ''')
         .order('created_at', ascending: false);
 
@@ -33,26 +33,25 @@ class SocialService {
       final likes = post['likes'] as List<dynamic>? ?? [];
       final lives = post['lives'] as List<dynamic>? ?? [];
 
-      final isLiked = likes.any((like) => like['user_id'] == userId);
-      final isLived = lives.any((live) => live['user_id'] == userId);
+     return {
+  ...post,
+  'username': userProfile?['username'] ?? 'usuario',
+  'display_name': userProfile?['display_name'] ?? 'Usuário',
+  'avatar_url': userProfile?['avatar_url'],
+  'selected_frame': userProfile?['selected_frame'],
+  'likes_count': post['likes_count'] ?? 0,
+  'lives_count': post['lives_count'] ?? 0,
+  'is_liked': likes.any((like) => like['user_id'] == userId),
+  'is_reposted': lives.any((live) => live['user_id'] == userId),
+};
 
-      return {
-        ...post,
-        'username': userProfile?['username'] ?? 'usuario',
-        'display_name': userProfile?['display_name'] ?? 'Usuário',
-        'avatar_url': userProfile?['avatar_url'],
-        'selected_frame': userProfile?['selected_frame'],
-        'is_liked': isLiked,
-        'likes_count': post['likes_count'] ?? 0,
-        'is_lived': isLived,
-        'lives_count': post['lives_count'] ?? 0,
-      };
     }).toList();
   } catch (e) {
     print('❌ Erro ao carregar posts: $e');
     return [];
   }
 }
+
 
 
   Future<String?> uploadImageToSupabase(File imageFile, String userId) async {

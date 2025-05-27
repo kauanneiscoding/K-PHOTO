@@ -10,7 +10,7 @@ class Post {
   final DateTime createdAt;
   
   int likesCount;
-  int repostsCount;
+  int livesCount;
   List<Map<String, dynamic>> comments;
   bool isLiked;
   bool isReposted;
@@ -26,7 +26,7 @@ class Post {
     this.selectedFrame,
     DateTime? createdAt,
     this.likesCount = 0,
-    this.repostsCount = 0,
+    this.livesCount = 0,
     this.comments = const [],
     this.isLiked = false,
     this.isReposted = false,
@@ -44,7 +44,7 @@ class Post {
       'avatar_url': avatarUrl,
       'selected_frame': selectedFrame,
       'likes_count': likesCount,
-      'reposts_count': repostsCount,
+      'lives_count': livesCount,
       'comments_count': comments.length,
       'is_liked': isLiked ? 1 : 0,
       'is_reposted': isReposted ? 1 : 0,
@@ -71,9 +71,9 @@ class Post {
       likesCount: (map['likes_count'] ?? map['curtidas'] ?? 0) is int 
           ? map['likes_count'] ?? map['curtidas'] ?? 0 
           : int.tryParse(map['likes_count'].toString()) ?? 0,
-      repostsCount: (map['reposts_count'] ?? map['republicacoes'] ?? 0) is int
-          ? map['reposts_count'] ?? map['republicacoes'] ?? 0
-          : int.tryParse(map['reposts_count'].toString()) ?? 0,
+      livesCount: (map['lives_count'] ?? map['republicacoes'] ?? 0) is int
+          ? map['lives_count'] ?? map['republicacoes'] ?? 0
+          : int.tryParse(map['lives_count'].toString()) ?? 0,
       isLiked: map['is_liked'] == true || map['is_liked'] == 1,
       isReposted: map['is_reposted'] == true || map['is_reposted'] == 1,
     );
@@ -91,7 +91,7 @@ class Post {
     String? selectedFrame,
     DateTime? createdAt,
     int? likesCount,
-    int? repostsCount,
+    int? livesCount,
     List<Map<String, dynamic>>? comments,
     bool? isLiked,
     bool? isReposted,
@@ -107,7 +107,7 @@ class Post {
       selectedFrame: selectedFrame ?? this.selectedFrame,
       createdAt: createdAt ?? this.createdAt,
       likesCount: likesCount ?? this.likesCount,
-      repostsCount: repostsCount ?? this.repostsCount,
+      livesCount: livesCount ?? this.livesCount,
       comments: comments ?? this.comments,
       isLiked: isLiked ?? this.isLiked,
       isReposted: isReposted ?? this.isReposted,

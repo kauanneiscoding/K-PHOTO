@@ -147,7 +147,12 @@ class _FeedPageState extends State<FeedPage> {
       await SocialService().toggleLive(post.id!, post.isReposted);
       setState(() {
         post.isReposted = !post.isReposted;
-        post.repostsCount += post.isReposted ? 1 : -1;
+        if (post.isReposted) {
+          post.livesCount = (post.livesCount ?? 0) + 1;
+        } else {
+          post.livesCount = (post.livesCount ?? 1) - 1;
+          if (post.livesCount! < 0) post.livesCount = 0;
+        }
       });
     } catch (e) {
       print('Erro ao repostar: $e');
@@ -1018,7 +1023,7 @@ class _FeedPageState extends State<FeedPage> {
                             // Repost button
                             _buildInteractionButton(
                               icon: Icons.repeat_outlined,
-                              count: post.repostsCount,
+                              count: post.livesCount,
                               onPressed: () => _repostar(post),
                               color: Colors.blue,
                               isReposted: post.isReposted,
@@ -1064,13 +1069,13 @@ class _FeedPageState extends State<FeedPage> {
       if (icon == Icons.favorite_border || icon == Icons.favorite) {
         return Icon(
           isLiked ? Icons.favorite : Icons.favorite_border,
-          color: isLiked ? Colors.pink : color,
+          color: isLiked ? Colors.pink[700] : color,
           size: 20,
         );
       } else if (icon == Icons.repeat_outlined || icon == Icons.repeat) {
         return Icon(
           isReposted ? Icons.repeat : Icons.repeat_outlined,
-          color: isReposted ? Colors.blue : color,
+          color: isReposted ? Colors.blue[700] : color,
           size: 20,
         );
       } else {
@@ -1081,11 +1086,21 @@ class _FeedPageState extends State<FeedPage> {
     // Determine the text color based on the interaction state
     Color getTextColor() {
       if (isLiked && (icon == Icons.favorite_border || icon == Icons.favorite)) {
-        return Colors.pink;
+        return Colors.pink[700]!;
       } else if (isReposted && (icon == Icons.repeat_outlined || icon == Icons.repeat)) {
-        return Colors.blue;
+        return Colors.blue[700]!;
       }
       return color;
+    }
+    
+    // Get the background color based on the interaction state
+    Color getBackgroundColor() {
+      if (isLiked && (icon == Icons.favorite_border || icon == Icons.favorite)) {
+        return Colors.pink[50]!;
+      } else if (isReposted && (icon == Icons.repeat_outlined || icon == Icons.repeat)) {
+        return Colors.blue[50]!;
+      }
+      return color.withOpacity(0.1);
     }
 
     return GestureDetector(
@@ -1093,7 +1108,7 @@ class _FeedPageState extends State<FeedPage> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
+          color: getBackgroundColor(),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Row(
