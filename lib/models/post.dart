@@ -11,6 +11,7 @@ class Post {
   
   int likesCount;
   int livesCount;
+  int commentsCount = 0;
   List<Map<String, dynamic>> comments;
   bool isLiked;
   bool isReposted;
@@ -25,12 +26,19 @@ class Post {
     this.avatarUrl,
     this.selectedFrame,
     DateTime? createdAt,
-    this.likesCount = 0,
-    this.livesCount = 0,
-    this.comments = const [],
-    this.isLiked = false,
-    this.isReposted = false,
-  }) : createdAt = createdAt ?? DateTime.now();
+    int? likesCount,
+    int? livesCount,
+    int? commentsCount,
+    List<Map<String, dynamic>>? comments,
+    bool? isLiked,
+    bool? isReposted,
+  }) : createdAt = createdAt ?? DateTime.now(),
+       likesCount = likesCount ?? 0,
+       livesCount = livesCount ?? 0,
+       commentsCount = commentsCount ?? 0,
+       comments = comments ?? [],
+       isLiked = isLiked ?? false,
+       isReposted = isReposted ?? false;
 
   /// Converts the Post to a Map for database storage
   Map<String, dynamic> toMap() {
@@ -57,6 +65,11 @@ class Post {
     final createdAt = map['created_at'] is String 
         ? DateTime.parse(map['created_at']) 
         : (map['created_at'] ?? DateTime.now());
+    
+    // Processa o comments_count
+    final commentsCount = (map['comments_count'] ?? 0) is int
+        ? map['comments_count'] ?? 0
+        : int.tryParse(map['comments_count'].toString()) ?? 0;
         
     return Post(
       id: map['id']?.toString(),
@@ -74,6 +87,7 @@ class Post {
       livesCount: (map['lives_count'] ?? map['republicacoes'] ?? 0) is int
           ? map['lives_count'] ?? map['republicacoes'] ?? 0
           : int.tryParse(map['lives_count'].toString()) ?? 0,
+      commentsCount: commentsCount,
       isLiked: map['is_liked'] == true || map['is_liked'] == 1,
       isReposted: map['is_reposted'] == true || map['is_reposted'] == 1,
     );
@@ -92,6 +106,7 @@ class Post {
     DateTime? createdAt,
     int? likesCount,
     int? livesCount,
+    int? commentsCount,
     List<Map<String, dynamic>>? comments,
     bool? isLiked,
     bool? isReposted,
@@ -108,6 +123,7 @@ class Post {
       createdAt: createdAt ?? this.createdAt,
       likesCount: likesCount ?? this.likesCount,
       livesCount: livesCount ?? this.livesCount,
+      commentsCount: commentsCount ?? this.commentsCount,
       comments: comments ?? this.comments,
       isLiked: isLiked ?? this.isLiked,
       isReposted: isReposted ?? this.isReposted,

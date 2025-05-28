@@ -23,8 +23,8 @@ Future<List<Map<String, dynamic>>> getFeedPosts() async {
             selected_frame
           ),
           likes!post_id(user_id),
-          lives!post_id(user_id)
-          
+          lives!post_id(user_id),
+          comments_count
         ''')
         .order('created_at', ascending: false);
 
@@ -33,24 +33,27 @@ Future<List<Map<String, dynamic>>> getFeedPosts() async {
       final likes = post['likes'] as List<dynamic>? ?? [];
       final lives = post['lives'] as List<dynamic>? ?? [];
 
-     return {
-  ...post,
-  'username': userProfile?['username'] ?? 'usuario',
-  'display_name': userProfile?['display_name'] ?? 'Usuário',
-  'avatar_url': userProfile?['avatar_url'],
-  'selected_frame': userProfile?['selected_frame'],
-  'likes_count': post['likes_count'] ?? 0,
-  'lives_count': post['lives_count'] ?? 0,
-  'is_liked': likes.any((like) => like['user_id'] == userId),
-  'is_reposted': lives.any((live) => live['user_id'] == userId),
-};
+      int commentsCount = (post['comments_count'] as int?) ?? 0;
 
+      return {
+        ...post,
+        'username': userProfile?['username'] ?? 'usuario',
+        'display_name': userProfile?['display_name'] ?? 'Usuário',
+        'avatar_url': userProfile?['avatar_url'],
+        'selected_frame': userProfile?['selected_frame'],
+        'likes_count': post['likes_count'] ?? 0,
+        'lives_count': post['lives_count'] ?? 0,
+        'comments_count': commentsCount,
+        'is_liked': likes.any((like) => like['user_id'] == userId),
+        'is_reposted': lives.any((live) => live['user_id'] == userId),
+      };
     }).toList();
   } catch (e) {
     print('❌ Erro ao carregar posts: $e');
     return [];
   }
 }
+
 
 
 
@@ -190,29 +193,77 @@ Future<void> toggleLive(String postId, bool isReposted) async {
 
   /// Adds a comment to a post
   /// Returns the created comment ID
-  Future<String> addComment(String postId, String content) async {
-    try {
-      final user = _supabase.auth.currentUser;
-      if (user == null) throw Exception('User not authenticated');
-      if (content.trim().isEmpty) throw Exception('Comment cannot be empty');
+ Future<String> addComment(String postId, String content) async {
+  try {
+    final user = _supabase.auth.currentUser;
+    if (user == null) throw Exception('User not authenticated');
+    if (content.trim().isEmpty) throw Exception('Comment cannot be empty');
 
-      final response = await _supabase
-          .from('comments')
-          .insert({
-            'post_id': postId,
-            'user_id': user.id,
-            'content': content,
-            'created_at': DateTime.now().toIso8601String(),
-          })
-          .select('id')
-          .single();
+    final response = await _supabase
+        .from('comments')
+        .insert({
+          'post_id': postId,
+          'user_id': user.id,
+          'content': content,
+          'created_at': DateTime.now().toIso8601String(),
+        })
+        .select('id')
+        .single();
 
-      return response['id'].toString();
-    } catch (e) {
-      print('❌ Error adding comment: $e');
-      rethrow;
-    }
+    // 🔥 Atualiza contador de comentários
+    await _supabase.rpc('update_post_comments_count', params: {
+      'post_id_param': postId,
+    });
+
+    return response['id'].toString();
+  } catch (e) {
+    print('❌ Error adding comment: $e');
+    rethrow;
   }
+}
+
+
+
+  /// Deletes a comment by its ID
+/// Returns true if successful, false otherwise
+Future<bool> deleteComment(String commentId) async {
+  try {
+    final user = _supabase.auth.currentUser;
+    if (user == null) throw Exception('User not authenticated');
+
+    final commentResponse = await _supabase
+        .from('comments')
+        .select('post_id, user_id')
+        .eq('id', commentId)
+        .single();
+
+    if (commentResponse == null) {
+      throw Exception('Comment not found');
+    }
+
+    final commentOwnerId = commentResponse['user_id']?.toString();
+    final postId = commentResponse['post_id']?.toString();
+    if (commentOwnerId != user.id) {
+      throw Exception('You can only delete your own comments');
+    }
+
+    await _supabase
+        .from('comments')
+        .delete()
+        .eq('id', commentId);
+
+    // 🔥 Atualiza contador de comentários
+    await _supabase.rpc('update_post_comments_count', params: {
+      'post_id_param': postId,
+    });
+
+    return true;
+  } catch (e) {
+    print('❌ Error deleting comment: $e');
+    rethrow;
+  }
+}
+
 
   /// Gets comments for a post with user information
   Future<List<Map<String, dynamic>>> getComments(String postId) async {

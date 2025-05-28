@@ -24,6 +24,7 @@ dependencies:
   supabase_flutter: ^1.10.0
   gotrue: ^1.12.6
   postgrest: ^1.5.2
+  timeago: ^3.7.1
 
 dev_dependencies:
   flutter_test:

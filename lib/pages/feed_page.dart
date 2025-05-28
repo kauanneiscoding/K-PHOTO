@@ -2,14 +2,26 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:timeago/timeago.dart' as timeago;
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:k_photo/friend_page.dart';
+
 import '../models/post.dart';
 import '../models/comment.dart' as comment_model;
 import '../services/database.dart';
 import '../data_storage_service.dart';
 import '../services/social_service.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:k_photo/friend_page.dart';
 import '../services/supabase_service.dart';
+
+// Extensão para adicionar o método firstWhereOrNull ao Iterable
+extension IterableExtension<T> on Iterable<T> {
+  T? firstWhereOrNull(bool Function(T) test) {
+    for (var element in this) {
+      if (test(element)) return element;
+    }
+    return null;
+  }
+}
 
 class FeedPage extends StatefulWidget {
   final DataStorageService dataStorageService;
@@ -234,47 +246,112 @@ class _FeedPageState extends State<FeedPage> {
   }
 
   Future<void> _carregarComentarios(String postId) async {
+    if (!mounted) return;
+    
     try {
-      final comments = await _dbHelper.getCommentsByPostId(postId);
-      final commentCount = await _dbHelper.getCommentCountByPostId(postId);
+      // Busca os comentários do Supabase diretamente
+      final commentsData = await SocialService().getComments(postId);
+      
+      // Converte os dados para objetos Comment
+      final comments = commentsData.map((data) {
+        return comment_model.Comment(
+          id: data['id']?.toString(),
+          postId: data['post_id']?.toString() ?? '',
+          userId: data['user_id']?.toString() ?? '',
+          content: data['content']?.toString() ?? '',
+          createdAt: DateTime.tryParse(data['created_at']?.toString() ?? '') ?? DateTime.now(),
+          username: data['username']?.toString(),
+          displayName: data['display_name']?.toString(),
+          avatarUrl: data['avatar_url']?.toString(),
+        );
+      }).toList();
+      
+      if (!mounted) return;
       
       setState(() {
         _postComments[postId] = comments;
-        _commentCounts[postId] = commentCount;
+        _commentCounts[postId] = comments.length;
       });
-    } catch (e) {
-      print('Erro ao carregar comentários: $e');
+    } catch (e, stackTrace) {
+      print('❌ Erro ao carregar comentários: $e');
+      print('Stack trace: $stackTrace');
+      
+      if (!mounted) return;
+      
+      // Define uma lista vazia em caso de erro para evitar exibir erros na UI
+      setState(() {
+        _postComments[postId] = [];
+        _commentCounts[postId] = 0;
+      });
+      
+      // Mostra mensagem de erro apenas se o widget ainda estiver montado
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Erro ao carregar comentários. Tente novamente.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      
+      // Relança o erro para que o chamador possa tratá-lo também
+      rethrow;
     }
   }
 
-  Future<void> _deletarComentario(comment_model.Comment comment, StateSetter? setModalState) async {
+  Future<void> _deletarComentario(String commentId, StateSetter? setModalState) async {
     try {
-      await _dbHelper.deleteComment(comment.id!);
+      // Encontra o comentário para obter o postId
+      String? postId;
+      for (var entry in _postComments.entries) {
+        final comment = entry.value.firstWhereOrNull((c) => c.id == commentId);
+        if (comment != null) {
+          postId = comment.postId;
+          break;
+        }
+      }
+
+      if (postId == null) {
+        throw Exception('Comentário não encontrado');
+      }
+
+      // Remove o comentário do Supabase
+      await SocialService().deleteComment(commentId);
       
-      // Remove the comment from the local list
-      if (_postComments.containsKey(comment.postId)) {
-        _postComments[comment.postId]!.removeWhere((c) => c.id == comment.id);
+      // Atualiza a UI
+      if (mounted) {
+        setState(() {
+          if (_postComments.containsKey(postId)) {
+            _postComments[postId]!.removeWhere((c) => c.id == commentId);
+            _commentCounts[postId!] = _postComments[postId]!.length;
+          }
+        });
       }
       
-      // Update the UI if a modal state setter is provided
+      // Se estiver em um modal, atualiza o estado do modal também
       if (setModalState != null) {
         setModalState(() {});
       }
       
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Comentário excluído'),
-          backgroundColor: Colors.red[300],
-          duration: Duration(seconds: 1),
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Comentário excluído'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erro ao excluir comentário'),
-          backgroundColor: Colors.red[300],
-        ),
-      );
+      print('❌ Erro ao excluir comentário: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Erro ao excluir comentário'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -411,198 +488,174 @@ class _FeedPageState extends State<FeedPage> {
     );
   }
 
-  void _mostrarModalComentarios(Post post) {
-    final TextEditingController _comentarioController = TextEditingController();
+  // Refatorado: Modal de Comentários conectado ao Supabase
+void _mostrarModalComentarios(Post post) async {
+  final TextEditingController _comentarioController = TextEditingController();
+
+  // Mostra um indicador de carregamento
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => const Center(
+      child: CircularProgressIndicator(),
+    ),
+  );
+
+  try {
+    // Aguarda o carregamento dos comentários
+    await _carregarComentarios(post.id!);
     
-    // Load comments when modal opens
-    _carregarComentarios(post.id!.toString());
+    // Fecha o indicador de carregamento
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+  } catch (e) {
+    // Em caso de erro, fecha o indicador e mostra mensagem de erro
+    if (mounted) {
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Erro ao carregar comentários')),
+      );
+      return;
+    }
+  }
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) => Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-            left: 16,
-            right: 16,
-            top: 16,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Comentários',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.pink[800],
-                ),
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (context) => StatefulBuilder(
+      builder: (context, setModalState) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+          left: 16,
+          right: 16,
+          top: 16,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Comentários',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.pink[800],
               ),
-              SizedBox(height: 10),
-              
-              // Comments List
-              if (_postComments[post.id!] != null && _postComments[post.id!]!.isNotEmpty)
-                ListView.builder(
-                  shrinkWrap: true,
-                  physics: NeverScrollableScrollPhysics(),
-                  itemCount: _postComments[post.id!]!.length,
-                  itemBuilder: (context, index) {
-                    final comment = _postComments[post.id!]![index];
-                    return ListTile(
-                      title: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(comment.userName ?? 'Usuário Anônimo'),
-                                Text(comment.content),
-                              ],
-                            ),
-                          ),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                _formatCommentDate(comment.createdAt),
-                                style: TextStyle(color: Colors.grey, fontSize: 12),
-                              ),
-                              WillPopScope(
-                                onWillPop: () async {
-                                  FocusManager.instance.primaryFocus?.requestFocus();
-                                  return false;
-                                },
-                                child: PopupMenuButton<String>(
-                                  icon: Icon(Icons.more_vert, size: 16, color: Colors.grey),
-                                  padding: EdgeInsets.zero,
-                                  elevation: 2,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  onCanceled: () {
-                                    // Prevent automatic keyboard dismissal
-                                    FocusManager.instance.primaryFocus?.requestFocus();
-                                  },
-                                  onSelected: (value) {
-                                    if (value == 'delete') {
-                                      _deletarComentario(comment, setModalState);
-                                    }
-                                    // Prevent keyboard dismissal
-                                    FocusManager.instance.primaryFocus?.requestFocus();
-                                  },
-                                  itemBuilder: (BuildContext context) => [
-                                    PopupMenuItem<String>(
-                                      value: 'delete',
-                                      child: Text(
-                                        'Excluir', 
-                                        style: TextStyle(
-                                          color: Colors.red, 
-                                          fontSize: 12
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 0, vertical: 0),
-                    );
-                  },
-                )
-              else
-                Text(
-                  'Nenhum comentário ainda.',
-                  style: TextStyle(
-                    color: Colors.grey,
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              
-              SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _comentarioController,
-                      decoration: InputDecoration(
-                        hintText: 'Adicione um comentário...',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 10,
-                        ),
-                      ),
-                      maxLines: null,
+            ),
+            const SizedBox(height: 12),
+
+            // Lista de Comentários
+            if (_postComments[post.id!]?.isNotEmpty ?? false)
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _postComments[post.id!]!.length,
+                itemBuilder: (context, index) {
+                  final comment = _postComments[post.id!]![index];
+                  final displayName = comment.displayName ?? 'Usuário';
+                  final username = comment.username ?? 'usuario';
+                  final avatarUrl = comment.avatarUrl;
+                  final createdAt = comment.createdAt;
+
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: CircleAvatar(
+                      radius: 22,
+                      backgroundImage: avatarUrl != null
+                          ? NetworkImage(avatarUrl)
+                          : const AssetImage('assets/default_profile.png') as ImageProvider,
                     ),
-                  ),
-                  SizedBox(width: 10),
-                  IconButton(
-                    icon: Icon(Icons.send, color: Colors.pink[800]),
-                    onPressed: () async {
-                      String comentario = _comentarioController.text.trim();
-                      if (comentario.isNotEmpty) {
-                        // TODO: Replace with actual user authentication
-                        String currentUserId = await _getCurrentUserId();
-                        String currentUserName = await _getCurrentUserName();
-
-                        final newComment = comment_model.Comment(
-                          id: const Uuid().v4(),  // Generate a new UUID
-                          postId: post.id!,
-                          userId: currentUserId,
-                          content: comentario,
-                          userName: currentUserName,
-                          createdAt: DateTime.now(),
-                        );
-
-                        try {
-                          await _dbHelper.addComment(newComment);
-                          
-                          // Reload comments and update the UI
-                          await _carregarComentarios(post.id!.toString());
-                          
-                          // Update the modal's state to show new comments
-                          setModalState(() {});
-                          
-                          _comentarioController.clear();
-                          
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Comentário enviado!'),
-                              backgroundColor: Colors.green[300],
-                              duration: Duration(seconds: 1),
-                            ),
-                          );
-                        } catch (e) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Erro ao enviar comentário'),
-                              backgroundColor: Colors.red[300],
-                            ),
-                          );
+                    title: Text(
+                      displayName,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('@$username', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                        Text(comment.content),
+                        Text(
+                          _formatCommentDate(createdAt),
+                          style: const TextStyle(fontSize: 10, color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                    trailing: PopupMenuButton<String>(
+                      onSelected: (value) {
+                        if (value == 'delete') {
+                          if (comment.id != null) {
+                            _deletarComentario(comment.id!, setModalState).then((_) {
+                              _atualizarContadorComentarios(post, -1); // Decrementa o contador
+                            });
+                          }
                         }
-                      }
-                    },
+                      },
+                      itemBuilder: (context) => [
+                        const PopupMenuItem(
+                          value: 'delete',
+                          child: Text('Excluir', style: TextStyle(color: Colors.red)),
+                        ),
+                      ],
+                      icon: const Icon(Icons.more_vert, size: 18),
+                    ),
+                  );
+                },
+              )
+            else
+              const Text('Nenhum comentário ainda.', style: TextStyle(color: Colors.grey)),
+
+            const SizedBox(height: 12),
+
+            // Campo de envio
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _comentarioController,
+                    decoration: InputDecoration(
+                      hintText: 'Adicione um comentário...',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    ),
+                    maxLines: null,
                   ),
-                ],
-              ),
-              SizedBox(height: 10),
-            ],
-          ),
+                ),
+                const SizedBox(width: 10),
+                IconButton(
+                  icon: Icon(Icons.send, color: Colors.pink[800]),
+                  onPressed: () async {
+                    final comentario = _comentarioController.text.trim();
+                    if (comentario.isEmpty) return;
+
+                    try {
+                      await SocialService().addComment(post.id!, comentario);
+                      _comentarioController.clear();
+                      await _carregarComentarios(post.id!);
+                      _atualizarContadorComentarios(post, 1); // Incrementa o contador
+                      setModalState(() {}); // Atualiza o modal
+                    } catch (_) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Erro ao comentar'), backgroundColor: Colors.red),
+                      );
+                    }
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+          ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
+
+
 
   // Placeholder methods for user identification
   Future<String> _getCurrentUserId() async {
@@ -1015,7 +1068,7 @@ class _FeedPageState extends State<FeedPage> {
                             // Comment button
                             _buildInteractionButton(
                               icon: Icons.comment_outlined,
-                              count: _commentCounts[post.id] ?? 0,
+                              count: post.commentsCount,
                               onPressed: () => _mostrarModalComentarios(post),
                               color: Colors.green[300]!,
                             ),
@@ -1040,6 +1093,16 @@ class _FeedPageState extends State<FeedPage> {
         ],
       ),
     );
+  }
+
+  // Atualiza o contador de comentários de um post
+  void _atualizarContadorComentarios(Post post, int delta) {
+    setState(() {
+      final index = _posts.indexWhere((p) => p.id == post.id);
+      if (index != -1) {
+        _posts[index] = post.copyWith(commentsCount: post.commentsCount + delta);
+      }
+    });
   }
 
   // Helper method to format post date
