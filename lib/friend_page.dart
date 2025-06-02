@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:k_photo/services/supabase_service.dart';
+import 'package:k_photo/widgets/avatar_with_frame.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class FriendPage extends StatefulWidget {
@@ -318,53 +319,12 @@ class _FriendPageState extends State<FriendPage> {
         final statusText = isOnline ? 'Online agora' : formatLastSeen(friend['last_seen']);
         
         return ListTile(
-          leading: Stack(
-            children: [
-              CircleAvatar(
-                backgroundColor: Colors.grey[200],
-                child: friend['avatar_url'] != null
-                    ? ClipOval(
-                        child: Image.network(
-                          friend['avatar_url'] as String,
-                          fit: BoxFit.cover,
-                          width: 40,
-                          height: 40,
-                          errorBuilder: (context, error, stackTrace) {
-                            // Show default profile image if there's an error
-                            return Image.asset(
-                              'assets/default_profile.png',
-                              fit: BoxFit.cover,
-                              width: 40,
-                              height: 40,
-                            );
-                          },
-                        ),
-                      )
-                    : Image.asset(
-                        'assets/default_profile.png',
-                        fit: BoxFit.cover,
-                        width: 40,
-                        height: 40,
-                      ),
-              ),
-              if (isOnline)
-                Positioned(
-                  right: 0,
-                  bottom: 0,
-                  child: Container(
-                    width: 12,
-                    height: 12,
-                    decoration: BoxDecoration(
-                      color: Colors.green,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: Colors.white,
-                        width: 2,
-                      ),
-                    ),
-                  ),
-                ),
-            ],
+          leading: AvatarWithFrame(
+            imageUrl: friend['avatar_url'],
+            framePath: friend['selected_frame'] ?? 'assets/frame_none.png',
+            size: 42,
+            showOnlineStatus: true,
+            isOnline: isOnline,
           ),
           title: Text(
             '@${friend['username']}',
@@ -427,9 +387,10 @@ class _FriendPageState extends State<FriendPage> {
               borderRadius: BorderRadius.circular(12),
             ),
             child: ListTile(
-              leading: CircleAvatar(
-                backgroundColor: Colors.pink[100],
-                child: Icon(Icons.person, color: Colors.pink[400]),
+              leading: AvatarWithFrame(
+                imageUrl: req['sender_avatar_url'],
+                framePath: req['selected_frame'] ?? 'assets/frame_none.png',
+                size: 42,
               ),
               title: Text(
                 '@${req['username']}',

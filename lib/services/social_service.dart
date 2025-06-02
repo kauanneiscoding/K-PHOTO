@@ -275,7 +275,8 @@ Future<bool> deleteComment(String commentId) async {
             user_profile!user_id(
               username,
               display_name,
-              avatar_url
+              avatar_url,
+              selected_frame
             )
           ''')
           .eq('post_id', postId)
@@ -288,6 +289,7 @@ Future<bool> deleteComment(String commentId) async {
           'username': userProfile?['username'] ?? 'usuario',
           'display_name': userProfile?['display_name'] ?? 'Usuário',
           'avatar_url': userProfile?['avatar_url'],
+          'selected_frame': userProfile?['selected_frame'],
         };
       }).toList();
     } catch (e) {

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:timeago/timeago.dart' as timeago;
+import 'package:k_photo/widgets/avatar_with_frame.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:k_photo/friend_page.dart';
 import 'package:flutter/rendering.dart'; // Para CustomClipper
@@ -264,6 +265,7 @@ class _FeedPageState extends State<FeedPage> {
           username: data['username']?.toString(),
           displayName: data['display_name']?.toString(),
           avatarUrl: data['avatar_url']?.toString(),
+          selectedFrame: data['selected_frame']?.toString(),
         );
       }).toList();
       
@@ -563,11 +565,10 @@ void _mostrarModalComentarios(Post post) async {
 
                   return ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: CircleAvatar(
-                      radius: 22,
-                      backgroundImage: avatarUrl != null
-                          ? NetworkImage(avatarUrl)
-                          : const AssetImage('assets/default_profile.png') as ImageProvider,
+                    leading: AvatarWithFrame(
+                      imageUrl: avatarUrl,
+                      framePath: comment.selectedFrame ?? 'assets/frame_none.png',
+                      size: 44, // 22 * 2 para manter o mesmo tamanho
                     ),
                     title: Text(
                       displayName,

@@ -604,13 +604,46 @@ class SupabaseService {
     final user = _client.auth.currentUser;
     if (user == null) return [];
 
+    // Primeiro, buscar as solicitações pendentes
     final response = await _client
         .from('friend_requests')
-        .select('id, sender_id, status')
+        .select('id, sender_id, status, created_at')
         .eq('receiver_id', user.id)
         .eq('status', 'pending');
 
-    return List<Map<String, dynamic>>.from(response);
+    if (response.isEmpty) return [];
+
+    // Extrair IDs dos remetentes
+    final senderIds = response.map((r) => r['sender_id'] as String).toList();
+
+    // Buscar detalhes dos remetentes
+    final sendersResponse = await _client
+        .from('user_profile')
+        .select('user_id, username, avatar_url, selected_frame')
+        .in_('user_id', senderIds);
+
+    // Mapear detalhes dos remetentes para as solicitações
+    return response.map<Map<String, dynamic>>((request) {
+      final sender = sendersResponse.firstWhere(
+        (s) => s['user_id'] == request['sender_id'],
+        orElse: () => {
+          'user_id': request['sender_id'],
+          'username': 'Usuário desconhecido',
+          'avatar_url': null,
+          'selected_frame': 'assets/frame_none.png',
+        },
+      );
+
+      return {
+        'id': request['id'],
+        'sender_id': request['sender_id'],
+        'status': request['status'],
+        'created_at': request['created_at'],
+        'username': sender['username'],
+        'avatar_url': sender['avatar_url'],
+        'selected_frame': sender['selected_frame'] ?? 'assets/frame_none.png',
+      };
+    }).toList();
   }
 
   /// Buscar lista de amigos
@@ -775,7 +808,7 @@ class SupabaseService {
   // Agora buscar os detalhes dos amigos com base nos IDs
   final detailsResponse = await _client
       .from('user_profile')
-      .select('user_id, username, display_name, avatar_url, last_seen')
+      .select('user_id, username, display_name, avatar_url, last_seen, selected_frame')
       .in_('user_id', friendIds);
 
   return List<Map<String, dynamic>>.from(detailsResponse);

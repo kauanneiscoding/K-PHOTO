@@ -305,53 +305,145 @@ Future<void> _pickAvatar() async {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Editar Perfil'),
-        backgroundColor: Colors.pink[100],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
+      body: SafeArea(
+        child: Stack(
           children: [
-            _buildProfilePicture(),
-            const SizedBox(height: 20),
-            TextField(
-              controller: _displayNameController,
-              decoration: const InputDecoration(
-                labelText: 'Nome de exibição',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 20),
-            const Text('Escolha uma moldura:'),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 10,
-              children: _availableFrames.map((framePath) {
-                return GestureDetector(
-                  onTap: () => _selectFrame(framePath),
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                        color: _selectedFrame == framePath ? Colors.pink : Colors.transparent,
-                        width: 2,
+            SingleChildScrollView(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  const SizedBox(height: 20),
+                  _buildProfilePicture(),
+                  const SizedBox(height: 20),
+                  const SizedBox(height: 20),
+                  // Campo de Nome de Exibição
+                  TextField(
+                    controller: _displayNameController,
+                    decoration: InputDecoration(
+                      labelText: 'Nome de Exibição',
+                      labelStyle: TextStyle(color: Colors.pink[700]),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(15),
+                        borderSide: BorderSide(color: Colors.pink[300]!),
                       ),
-                      borderRadius: BorderRadius.circular(12),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(15),
+                        borderSide: BorderSide(color: Colors.pink[400]!, width: 2),
+                      ),
+                      filled: true,
+                      fillColor: Colors.pink[50],
                     ),
-                    child: Image.asset(framePath, width: 60, height: 60),
+                    style: TextStyle(color: Colors.pink[900]),
                   ),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 30),
-            ElevatedButton(
-              onPressed: _saveChanges,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.pink[300],
-                padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 14),
+                  const SizedBox(height: 20),
+                  // Seção de Molduras
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.pink[50]!.withOpacity(0.9),
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.pink.withOpacity(0.1),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Escolha uma moldura:',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.pink[700],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          children: _availableFrames.map((framePath) {
+                            return GestureDetector(
+                              onTap: () => _selectFrame(framePath),
+                              child: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                  border: Border.all(
+                                    color: _selectedFrame == framePath 
+                                        ? Colors.pink[400]! 
+                                        : Colors.transparent,
+                                    width: 2,
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                  color: Colors.white,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.pink.withOpacity(0.1),
+                                      blurRadius: 4,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Image.asset(
+                                    framePath,
+                                    width: 60,
+                                    height: 60,
+                                    fit: BoxFit.cover,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 30),
+                  // Botão Salvar
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _saveChanges,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.pink[300],
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                        elevation: 3,
+                      ),
+                      child: const Text(
+                        'Salvar Alterações',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                ],
               ),
-              child: const Text('Salvar Alterações'),
+            ),
+            // Botão de voltar
+            Positioned(
+              top: 10,
+              left: 10,
+              child: IconButton(
+                icon: const Icon(
+                  Icons.arrow_back_rounded,
+                  color: Colors.pink,
+                  size: 30,
+                ),
+                onPressed: () => Navigator.pop(context),
+              ),
             ),
           ],
         ),

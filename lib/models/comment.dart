@@ -9,6 +9,7 @@ class Comment {
   final String? username;
   final String? displayName;
   final String? avatarUrl;
+  final String? selectedFrame;
 
   Comment({
     this.id,
@@ -19,6 +20,7 @@ class Comment {
     this.username,
     this.displayName,
     this.avatarUrl,
+    this.selectedFrame,
   });
 
   Map<String, dynamic> toMap() {
@@ -49,9 +51,10 @@ class Comment {
       userId: map['user_id']?.toString() ?? '',
       content: map['content']?.toString() ?? '',
       createdAt: parsedDate ?? DateTime.now(),
-      username: userProfile['username']?.toString(),
-      displayName: userProfile['display_name']?.toString(),
-      avatarUrl: userProfile['avatar_url']?.toString(),
+      username: userProfile?['username']?.toString(),
+      displayName: userProfile?['display_name']?.toString(),
+      avatarUrl: userProfile?['avatar_url']?.toString(),
+      selectedFrame: userProfile?['selected_frame']?.toString(),
     );
   }
 
