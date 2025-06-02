@@ -77,25 +77,100 @@ class _EditProfilePageState extends State<EditProfilePage> {
     });
   }
 
-  Future<void> _pickAvatar() async {
-    final picker = ImagePicker();
-    final image = await picker.pickImage(source: ImageSource.gallery);
+  bool _isUploading = false;
+
+Future<void> _pickAvatar() async {
+  if (_isUploading) return;
+
+  final picker = ImagePicker();
+  try {
+    final image = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+      maxWidth: 800,
+    );
+
     if (image == null) return;
+
+    setState(() => _isUploading = true);
 
     final file = File(image.path);
     final userId = _supabase.auth.currentUser?.id;
     if (userId == null) return;
 
-    try {
-      final fileName = 'avatar_$userId.jpg';
-      await _supabase.storage.from('avatars').upload(fileName, file, fileOptions: const FileOptions(upsert: true));
-      final imageUrl = _supabase.storage.from('avatars').getPublicUrl(fileName);
+    // Novo caminho com subpasta por userId
+    final fileExtension = image.path.split('.').last;
+    final fileName = '${DateTime.now().millisecondsSinceEpoch}.$fileExtension';
+    final fullPath = '$userId/$fileName';
 
+    // 1. Upload da nova imagem
+    await _supabase.storage
+        .from('avatars')
+        .upload(fullPath, file);
+
+    // 2. Gerar URL pública com cache busting
+    final imageUrl = _supabase.storage
+        .from('avatars')
+        .getPublicUrl(fullPath) + '?t=${DateTime.now().millisecondsSinceEpoch}';
+
+    // 3. Remover avatar anterior do bucket (se houver)
+    if (_avatarUrl != null) {
+      try {
+        final oldPath = Uri.decodeFull(Uri.parse(_avatarUrl!).pathSegments
+            .skipWhile((s) => s != 'avatars')
+            .skip(1)
+            .join('/'));
+        await _supabase.storage.from('avatars').remove([oldPath]);
+        debugPrint('🗑️ Avatar antigo removido: $oldPath');
+      } catch (e) {
+        debugPrint('❌ Erro ao remover avatar antigo: $e');
+      }
+    }
+
+    // 4. Atualizar o Supabase com a nova URL
+    await _supabase.from('user_profile')
+        .update({'avatar_url': imageUrl})
+        .eq('user_id', userId);
+
+    if (mounted) {
       setState(() {
         _avatarUrl = imageUrl;
       });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Foto de perfil atualizada com sucesso!')),
+      );
+    }
+  } catch (e) {
+    debugPrint('❌ Erro ao atualizar avatar: $e');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Erro ao atualizar avatar')),
+      );
+    }
+  } finally {
+    if (mounted) setState(() => _isUploading = false);
+  }
+}
+
+
+
+  Future<void> _updateProfileAvatar(String imageUrl) async {
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) return;
+
+    try {
+      await _supabase
+          .from('user_profile')
+          .update({'avatar_url': imageUrl})
+          .eq('user_id', userId);
     } catch (e) {
-      debugPrint('❌ Erro ao fazer upload do avatar: $e');
+      debugPrint('❌ Erro ao atualizar URL do avatar no perfil: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Erro ao salvar alterações do perfil')),
+        );
+      }
     }
   }
 

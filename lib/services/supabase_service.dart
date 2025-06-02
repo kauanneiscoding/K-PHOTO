@@ -782,26 +782,39 @@ class SupabaseService {
 }
 
   /// Faz upload de uma nova foto de perfil
+  /// Retorna a URL pública da imagem com cache busting
   Future<String> uploadProfilePicture(File imageFile) async {
     try {
       final userId = getCurrentUser()?.id;
-      if (userId == null) throw Exception('Usuário não está logado');
+      if (userId == null) throw Exception('Usuário não autenticado');
 
-      final fileExt = path.extension(imageFile.path);
-      final fileName = 'profile_$userId$fileExt';
-      
-      final response = await _client.storage
-          .from('profile_pictures')
-          .upload(fileName, imageFile);
-
-      if (response.isEmpty) {
-        throw Exception('Erro ao fazer upload da imagem');
+      // Verificar se o arquivo existe
+      if (!await imageFile.exists()) {
+        throw Exception('Arquivo de imagem não encontrado');
       }
 
-      final imageUrl = _client.storage
-          .from('profile_pictures')
-          .getPublicUrl(fileName);
+      // Extrair extensão do arquivo
+      final fileExtension = path.extension(imageFile.path).toLowerCase();
+      if (!['.jpg', '.jpeg', '.png', '.webp'].contains(fileExtension)) {
+        throw Exception('Formato de imagem não suportado. Use JPG, PNG ou WebP');
+      }
 
+      // Gerar nome de arquivo único com timestamp
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final fileName = '$timestamp$fileExtension';
+      final filePath = '$userId/$fileName'; // pasta do usuário
+
+      // Upload para a subpasta do usuário
+      await _client.storage
+          .from('avatars')
+          .upload(filePath, imageFile);
+
+      // Gera a URL pública com cache busting
+      final String imageUrl = _client.storage
+          .from('avatars')
+          .getPublicUrl(filePath) + '?t=$timestamp';
+
+      debugPrint('✅ Upload de imagem de perfil concluído: $imageUrl');
       return imageUrl;
     } catch (e) {
       debugPrint('❌ Erro ao fazer upload da foto de perfil: $e');

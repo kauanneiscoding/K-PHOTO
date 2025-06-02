@@ -133,60 +133,56 @@ class _ProfilePageState extends State<ProfilePage> {
 
 
 
-  Future<void> _pickImage() async {
-    try {
-      final ImagePicker picker = ImagePicker();
-      final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+Future<void> _pickImage() async {
+  try {
+    final ImagePicker picker = ImagePicker();
+    final XFile? image = await picker.pickImage(source: ImageSource.gallery);
 
-      if (image == null) return;
+    if (image == null) return;
 
-      final userId = Supabase.instance.client.auth.currentUser?.id;
-      if (userId == null) return;
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
 
-      // Upload the image to Supabase storage
-      final fileExtension = image.path.split('.').last;
-      final fileName = 'avatar_$userId.${DateTime.now().millisecondsSinceEpoch}.$fileExtension';
-      final file = File(image.path);
-      
-      await Supabase.instance.client.storage
-          .from('avatars')
-          .uploadBinary(
-            fileName, 
-            await file.readAsBytes(),
-            fileOptions: FileOptions(upsert: true, contentType: 'image/$fileExtension'),
-          );
-          
-      // Get the public URL
-      final String imageUrl = Supabase.instance.client.storage
-          .from('avatars')
-          .getPublicUrl(fileName);
-          
-      // Update the user's profile with the new avatar URL
-      await Supabase.instance.client
-          .from('user_profile')
-          .update({'avatar_url': imageUrl})
-          .eq('user_id', userId);
-          
-      if (mounted) {
-        setState(() {
-          profileImagePath = imageUrl;
-        });
-      }
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Foto de perfil atualizada com sucesso!')),
-        );
-      }
-    } catch (e) {
-      debugPrint('❌ Erro ao atualizar a foto de perfil: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Erro ao atualizar a foto de perfil')),
-        );
-      }
+    final fileExtension = image.path.split('.').last;
+    final uniqueFileName = '${DateTime.now().millisecondsSinceEpoch}.$fileExtension';
+    final fullPath = '$userId/$uniqueFileName'; // Subpasta por ID de usuário
+    final file = File(image.path);
+
+    // Fazer upload do arquivo
+    await Supabase.instance.client.storage
+        .from('avatars')
+        .upload(fullPath, file);
+
+    // Gerar URL com cache busting
+    final String imageUrl = Supabase.instance.client.storage
+        .from('avatars')
+        .getPublicUrl(fullPath) + '?t=${DateTime.now().millisecondsSinceEpoch}';
+
+    // Atualiza no banco
+    await Supabase.instance.client
+        .from('user_profile')
+        .update({'avatar_url': imageUrl})
+        .eq('user_id', userId);
+
+    if (mounted) {
+      setState(() {
+        profileImagePath = imageUrl;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Foto de perfil atualizada com sucesso!')),
+      );
+    }
+  } catch (e) {
+    debugPrint('❌ Erro ao atualizar a foto de perfil: $e');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Erro ao atualizar a foto de perfil')),
+      );
     }
   }
+}
+
 
   Widget _buildProfilePicture() {
     return Container(
