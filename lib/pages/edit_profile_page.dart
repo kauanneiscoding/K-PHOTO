@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart'; // Para CustomClipper
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -205,6 +206,102 @@ Future<void> _pickAvatar() async {
     });
   }
 
+  Widget _buildProfilePicture() {
+    return GestureDetector(
+      onTap: _pickAvatar,
+      child: Container(
+        width: 120,
+        height: 120,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            if (_selectedFrame == 'assets/frame_none.png' || _selectedFrame.isEmpty)
+              // Imagem circular sem moldura, mas com mesmo tamanho
+              Container(
+                width: 110, // Mesmo tamanho da imagem com moldura
+                height: 110, // Mesmo tamanho da imagem com moldura
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  image: _avatarUrl != null && _avatarUrl!.isNotEmpty
+                      ? DecorationImage(
+                          image: _avatarUrl!.startsWith('http')
+                              ? NetworkImage(_avatarUrl!) as ImageProvider
+                              : FileImage(File(_avatarUrl!)) as ImageProvider,
+                          fit: BoxFit.cover,
+                        )
+                      : null,
+                  color: (_avatarUrl == null || _avatarUrl!.isEmpty) 
+                      ? Colors.grey[200] 
+                      : null,
+                ),
+                child: (_avatarUrl == null || _avatarUrl!.isEmpty)
+                    ? Icon(Icons.person, color: Colors.pink[300], size: 50)
+                    : null,
+              )
+            else
+              // Imagem com moldura
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  ClipPath(
+                    clipper: MolduraClipper(_selectedFrame),
+                    child: Container(
+                      width: 110,
+                      height: 110,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        image: _avatarUrl != null && _avatarUrl!.isNotEmpty
+                            ? DecorationImage(
+                                image: _avatarUrl!.startsWith('http')
+                                    ? NetworkImage(_avatarUrl!) as ImageProvider
+                                    : FileImage(File(_avatarUrl!)) as ImageProvider,
+                                fit: BoxFit.cover,
+                              )
+                            : null,
+                        color: (_avatarUrl == null || _avatarUrl!.isEmpty) 
+                            ? Colors.grey[200] 
+                            : null,
+                      ),
+                      child: (_avatarUrl == null || _avatarUrl!.isEmpty)
+                          ? Icon(Icons.person, color: Colors.pink[300], size: 50)
+                          : null,
+                    ),
+                  ),
+                  Image.asset(
+                    _selectedFrame,
+                    width: 120,
+                    height: 120,
+                    fit: BoxFit.contain,
+                  ),
+                ],
+              ),
+            // Ícone da câmera
+            Positioned(
+              bottom: 0,
+              right: 0,
+              child: Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: Colors.pink[200],
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Colors.white,
+                    width: 2,
+                  ),
+                ),
+                child: const Icon(
+                  Icons.camera_alt,
+                  color: Colors.white,
+                  size: 20,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -216,42 +313,7 @@ Future<void> _pickAvatar() async {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            GestureDetector(
-              onTap: _pickAvatar,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  CircleAvatar(
-                    radius: 55,
-                    backgroundImage: _avatarUrl != null
-                        ? NetworkImage(_avatarUrl!)
-                        : const AssetImage('assets/default_profile.png') as ImageProvider,
-                  ),
-                  if (_selectedFrame != 'assets/frame_none.png')
-                    Image.asset(_selectedFrame, width: 120, height: 120),
-                  Positioned(
-                    bottom: 0,
-                    right: 0,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: Colors.pink[200],
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.white,
-                          width: 2,
-                        ),
-                      ),
-                      child: const Icon(
-                        Icons.camera_alt,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            _buildProfilePicture(),
             const SizedBox(height: 20),
             TextField(
               controller: _displayNameController,
@@ -296,4 +358,22 @@ Future<void> _pickAvatar() async {
       ),
     );
   }
+}
+
+class MolduraClipper extends CustomClipper<Path> {
+  final String molduraAsset;
+
+  MolduraClipper(this.molduraAsset);
+
+  @override
+  Path getClip(Size size) {
+    return Path()
+      ..addOval(Rect.fromCircle(
+        center: Offset(size.width / 2, size.height / 2),
+        radius: (size.width - 20) / 2, // Ligeiramente menor que a moldura
+      ));
+  }
+
+  @override
+  bool shouldReclip(CustomClipper<Path> oldClipper) => false;
 }

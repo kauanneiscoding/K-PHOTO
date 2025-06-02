@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:k_photo/friend_page.dart';
+import 'package:flutter/rendering.dart'; // Para CustomClipper
 
 import '../models/post.dart';
 import '../models/comment.dart' as comment_model;
@@ -902,37 +903,77 @@ void _mostrarModalComentarios(Post post) async {
                         padding: const EdgeInsets.all(10),
                         child: Row(
                           children: [
-                            Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                // Profile picture
-                                Container(
-                                  width: 40,
-                                  height: 40,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    image: post.avatarUrl != null && post.avatarUrl!.isNotEmpty
-                                        ? DecorationImage(
-                                            image: post.avatarUrl!.startsWith('http')
-                                                ? NetworkImage(post.avatarUrl!) as ImageProvider
-                                                : FileImage(File(post.avatarUrl!)),
-                                            fit: BoxFit.cover,
-                                          )
-                                        : null,
-                                  ),
-                                  child: (post.avatarUrl == null || post.avatarUrl!.isEmpty)
-                                      ? Icon(Icons.person, color: Colors.pink[300])
-                                      : null,
-                                ),
-                                // Frame
-                                if (post.selectedFrame != null && post.selectedFrame != 'assets/frame_none.png')
-                                  Image.asset(
-                                    post.selectedFrame!,
-                                    width: 48,
-                                    height: 48,
-                                    fit: BoxFit.contain,
-                                  ),
-                              ],
+                            Container(
+                              width: 50,
+                              height: 50,
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  // Imagem de perfil ou ícone
+                                  if (post.selectedFrame != null && post.selectedFrame != 'assets/frame_none.png')
+                                    // Com moldura
+                                    Stack(
+                                      alignment: Alignment.center,
+                                      children: [
+                                        // Imagem de perfil recortada
+                                        ClipPath(
+                                          clipper: MolduraClipper(post.selectedFrame!),
+                                          child: Container(
+                                            width: 44,
+                                            height: 44,
+                                            decoration: BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              image: post.avatarUrl != null && post.avatarUrl!.isNotEmpty
+                                                  ? DecorationImage(
+                                                      image: post.avatarUrl!.startsWith('http')
+                                                          ? NetworkImage(post.avatarUrl!) as ImageProvider
+                                                          : FileImage(File(post.avatarUrl!)) as ImageProvider,
+                                                      fit: BoxFit.cover,
+                                                    )
+                                                  : null,
+                                              color: (post.avatarUrl == null || post.avatarUrl!.isEmpty) 
+                                                  ? Colors.grey[200] 
+                                                  : null,
+                                            ),
+                                            child: (post.avatarUrl == null || post.avatarUrl!.isEmpty)
+                                                ? Icon(Icons.person, color: Colors.pink[300], size: 22)
+                                                : null,
+                                          ),
+                                        ),
+                                        // Moldura
+                                        Image.asset(
+                                          post.selectedFrame!,
+                                          width: 50,
+                                          height: 50,
+                                          fit: BoxFit.contain,
+                                        ),
+                                      ],
+                                    )
+                                  else
+                                    // Sem moldura
+                                    Container(
+                                      width: 44,
+                                      height: 44,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        image: post.avatarUrl != null && post.avatarUrl!.isNotEmpty
+                                            ? DecorationImage(
+                                                image: post.avatarUrl!.startsWith('http')
+                                                    ? NetworkImage(post.avatarUrl!) as ImageProvider
+                                                    : FileImage(File(post.avatarUrl!)) as ImageProvider,
+                                                fit: BoxFit.cover,
+                                              )
+                                            : null,
+                                        color: (post.avatarUrl == null || post.avatarUrl!.isEmpty) 
+                                            ? Colors.grey[200] 
+                                            : null,
+                                      ),
+                                      child: (post.avatarUrl == null || post.avatarUrl!.isEmpty)
+                                          ? Icon(Icons.person, color: Colors.pink[300], size: 22)
+                                          : null,
+                                    ),
+                                ],
+                              ),
                             ),
                             const SizedBox(width: 10),
                             Expanded(
@@ -1190,4 +1231,22 @@ void _mostrarModalComentarios(Post post) async {
       ),
     );
   }
+}
+
+class MolduraClipper extends CustomClipper<Path> {
+  final String molduraAsset;
+
+  MolduraClipper(this.molduraAsset);
+
+  @override
+  Path getClip(Size size) {
+    return Path()
+      ..addOval(Rect.fromCircle(
+        center: Offset(size.width / 2, size.height / 2),
+        radius: (size.width - 6) / 2, // Ligeiramente menor que a moldura
+      ));
+  }
+
+  @override
+  bool shouldReclip(CustomClipper<Path> oldClipper) => false;
 }
