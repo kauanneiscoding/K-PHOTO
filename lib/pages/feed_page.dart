@@ -1007,33 +1007,72 @@ void _mostrarModalComentarios(Post post) async {
                                 ],
                               ),
                             ),
-                            // Edit and Delete options
-                            PopupMenuButton<String>(
-                              icon: const Icon(Icons.more_vert, color: Colors.grey),
-                              onSelected: (String choice) {
-                                if (choice == 'edit') {
-                                  _editarPost(post);
-                                } else if (choice == 'delete') {
-                                  _excluirPost(post);
-                                }
-                              },
-                              itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-                                const PopupMenuItem<String>(
-                                  value: 'edit',
-                                  child: ListTile(
-                                    leading: Icon(Icons.edit, color: Colors.blue),
-                                    title: Text('Editar'),
+                            // Mostrar opções de editar/excluir apenas para posts do usuário atual
+                            if (post.userId == Supabase.instance.client.auth.currentUser?.id)
+                              PopupMenuButton<String>(
+                                icon: const Icon(Icons.more_vert, color: Colors.grey, size: 20),
+                                onSelected: (String choice) {
+                                  if (choice == 'edit') {
+                                    _editarPost(post);
+                                  } else if (choice == 'delete') {
+                                    _excluirPost(post);
+                                  }
+                                },
+                                itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                                  PopupMenuItem<String>(
+                                    value: 'edit',
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(6),
+                                          decoration: BoxDecoration(
+                                            color: Colors.blue[50],
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                          child: Icon(Icons.edit_rounded, 
+                                            color: Colors.blue[600], 
+                                            size: 20,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Text('Editar', 
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            color: Colors.grey[800],
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                ),
-                                const PopupMenuItem<String>(
-                                  value: 'delete',
-                                  child: ListTile(
-                                    leading: Icon(Icons.delete, color: Colors.red),
-                                    title: Text('Excluir'),
+                                  PopupMenuItem<String>(
+                                    value: 'delete',
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(6),
+                                          decoration: BoxDecoration(
+                                            color: Colors.red[50],
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                          child: Icon(Icons.delete_rounded, 
+                                            color: Colors.red[400], 
+                                            size: 20,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Text('Excluir', 
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            color: Colors.grey[800],
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                ),
-                              ],
-                            ),
+                                ],
+                              ),
                           ],
                         ),
                       ),

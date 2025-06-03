@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
 
 class AvatarWithFrame extends StatelessWidget {
   final String? imageUrl;
@@ -18,80 +19,77 @@ class AvatarWithFrame extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final imageSize = size * 0.9; // Tamanho da imagem ligeiramente menor que a moldura
+    final hasFrame = framePath != 'assets/frame_none.png';
+    
+    // Proporções baseadas na profile_page
+    final imageSize = size * (110 / 120); // 110/120 = 0.916
     final frameSize = size;
-
+    
     return Stack(
       alignment: Alignment.center,
       children: [
-        if (framePath != 'assets/frame_none.png')
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              // Fundo circular para o ícone (quando não há imagem)
-              if (imageUrl == null || imageUrl!.isEmpty)
-                Container(
-                  width: imageSize,
-                  height: imageSize,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.grey,
-                  ),
-                ),
-              
-              // Imagem ou ícone recortado
-              ClipPath(
-                clipper: _MolduraClipper(),
-                child: Container(
-                  width: imageSize,
-                  height: imageSize,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    image: imageUrl != null && imageUrl!.isNotEmpty
-                        ? DecorationImage(
-                            image: imageUrl!.startsWith('http')
-                                ? NetworkImage(imageUrl!) as ImageProvider
-                                : AssetImage(imageUrl!) as ImageProvider,
-                            fit: BoxFit.cover,
+        if (hasFrame)
+          Container(
+            width: frameSize,
+            height: frameSize,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // Imagem ou ícone recortado
+                ClipPath(
+                  clipper: _MolduraClipper(framePath),
+                  child: Container(
+                    width: imageSize,
+                    height: imageSize,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: (imageUrl == null || imageUrl!.isEmpty) ? Colors.grey[200] : null,
+                      image: imageUrl != null && imageUrl!.isNotEmpty
+                          ? DecorationImage(
+                              image: imageUrl!.startsWith('http')
+                                  ? NetworkImage(imageUrl!) as ImageProvider
+                                  : FileImage(File(imageUrl!)) as ImageProvider,
+                              fit: BoxFit.cover,
+                            )
+                          : null,
+                    ),
+                    child: (imageUrl == null || imageUrl!.isEmpty)
+                        ? Center(
+                            child: Icon(
+                              Icons.person,
+                              color: Colors.pink[300],
+                              size: size * 0.5, // Proporcional ao tamanho total
+                            ),
                           )
                         : null,
                   ),
-                  child: (imageUrl == null || imageUrl!.isEmpty)
-                      ? Center(
-                          child: Icon(
-                            Icons.person,
-                            color: Colors.pink[300],
-                            size: imageSize * (framePath.endsWith('frame_none.png') ? 0.7 : 0.6), // Ícone menor quando tem moldura
-                          ),
-                        )
-                      : null,
                 ),
-              ),
-              
-              // Moldura
-              Image.asset(
-                framePath,
-                width: frameSize,
-                height: frameSize,
-                fit: BoxFit.contain,
-              ),
-            ],
+                
+                // Moldura
+                Image.asset(
+                  framePath,
+                  width: frameSize,
+                  height: frameSize,
+                  fit: BoxFit.contain,
+                ),
+              ],
+            ),
           )
         else
           // Sem moldura
           CircleAvatar(
-            radius: imageSize / 2,
+            radius: size / 2,
             backgroundColor: Colors.grey[200],
             backgroundImage: imageUrl != null && imageUrl!.isNotEmpty
                 ? (imageUrl!.startsWith('http')
                     ? NetworkImage(imageUrl!) as ImageProvider
-                    : AssetImage(imageUrl!) as ImageProvider)
+                    : FileImage(File(imageUrl!)) as ImageProvider)
                 : null,
             child: (imageUrl == null || imageUrl!.isEmpty)
                 ? Icon(
                     Icons.person,
                     color: Colors.pink[300],
-                    size: imageSize * 0.7,
+                    size: size * 0.5, // Proporcional ao tamanho total
                   )
                 : null,
           ),
@@ -120,12 +118,16 @@ class AvatarWithFrame extends StatelessWidget {
 }
 
 class _MolduraClipper extends CustomClipper<Path> {
+  final String molduraAsset;
+
+  _MolduraClipper(this.molduraAsset);
+
   @override
   Path getClip(Size size) {
     return Path()
       ..addOval(Rect.fromCircle(
         center: Offset(size.width / 2, size.height / 2),
-        radius: (size.width - 4) / 2, // Ligeiramente menor que a moldura
+        radius: (size.width - (20 * (size.width / 110))) / 2, // Ajuste proporcional ao tamanho
       ));
   }
 
