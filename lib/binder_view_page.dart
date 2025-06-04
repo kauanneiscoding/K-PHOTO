@@ -183,6 +183,7 @@ class _BinderViewPageState extends State<BinderViewPage>
       context,
       MaterialPageRoute(
         builder: (context) => EditBinderPage(
+          binderId: widget.binderId,
           currentCover: coverAsset,
           currentSpine: spineAsset,
           currentKeychain: keychainAsset,
@@ -252,37 +253,20 @@ class _BinderViewPageState extends State<BinderViewPage>
         actions: [
           ElevatedButton(
             onPressed: () {
-              Navigator.push(
+              Navigator.pushNamed(
                 context,
-                MaterialPageRoute(
-                  builder: (context) => EditBinderPage(
-                    currentCover: coverAsset,
-                    currentSpine: spineAsset,
-                    currentKeychain: keychainAsset,
-                    onCoversChanged: (cover, spine, keychain) async {
-                      await widget.dataStorageService.updateBinderCovers(
-                        widget.binderId,
-                        cover,
-                        spine,
-                      );
-                      await widget.dataStorageService.saveBinderKeychain(
-                        widget.binderId,
-                        keychain ?? '',
-                      );
-                      
-                      // Notificar atualização do binder
-                      widget.dataStorageService.notifyBinderUpdate();
-
-                      setState(() {
-                        coverAsset = cover;
-                        spineAsset = spine;
-                        keychainAsset = keychain;
-                      });
-                      Navigator.pop(context);
-                    },
-                  ),
-                ),
-              );
+                '/edit-binder',
+                arguments: {
+                  'binderId': widget.binderId,
+                  'cover': coverAsset,
+                  'spine': spineAsset,
+                  'keychain': keychainAsset,
+                  'dataStorageService': widget.dataStorageService,
+                },
+              ).then((_) {
+                // Recarregar os dados do binder após a edição
+                _loadBinderData();
+              });
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.pink[700],

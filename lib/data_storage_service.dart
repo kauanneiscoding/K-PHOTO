@@ -143,6 +143,24 @@ class DataStorageService {
             ''');
             print('✅ photocards table created successfully');
 
+            // Tabela para armazenar adesivos dos binders
+            await db.execute('''
+              CREATE TABLE binder_stickers(
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                binder_id TEXT NOT NULL,
+                sticker_id TEXT NOT NULL,
+                pos_x REAL NOT NULL,
+                pos_y REAL NOT NULL,
+                scale REAL NOT NULL,
+                rotation REAL NOT NULL,
+                image_path TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (binder_id) REFERENCES binders(id) ON DELETE CASCADE
+              )
+            ''');
+            print('✅ binder_stickers table created successfully');
+
             print('🎉 All initial tables created successfully');
           } catch (e) {
             print('❌ Error creating tables in onCreate: $e');
@@ -216,6 +234,68 @@ class DataStorageService {
   // Ensure the controller is closed when no longer needed
   void dispose() {
     binderUpdateController.close();
+  }
+
+  // Salva os adesivos de um binder
+  Future<void> saveStickersOnBinder(String binderId, List<Map<String, dynamic>> stickers) async {
+    if (_currentUserId == null) {
+      throw Exception('Usuário não autenticado');
+    }
+
+    final db = await database;
+    final batch = db.batch();
+    
+    // Primeiro, remove os adesivos existentes para este binder
+    await db.delete(
+      'binder_stickers',
+      where: 'binder_id = ? AND user_id = ?',
+      whereArgs: [binderId, _currentUserId],
+    );
+
+    // Depois insere os novos adesivos
+    if (stickers.isNotEmpty) {
+      final now = DateTime.now().toIso8601String();
+      
+      for (final sticker in stickers) {
+        batch.insert('binder_stickers', {
+          'id': '${binderId}_${sticker['sticker_id']}_${DateTime.now().millisecondsSinceEpoch}',
+          'user_id': _currentUserId,
+          'binder_id': binderId,
+          'sticker_id': sticker['sticker_id'],
+          'pos_x': sticker['pos_x'] ?? 0.0,
+          'pos_y': sticker['pos_y'] ?? 0.0,
+          'scale': sticker['scale'] ?? 1.0,
+          'rotation': sticker['rotation'] ?? 0.0,
+          'image_path': sticker['image_path'],
+          'created_at': now,
+        });
+      }
+      
+      await batch.commit(noResult: true);
+    }
+    
+    notifyBinderUpdate();
+  }
+
+  // Carrega os adesivos de um binder
+  Future<List<Map<String, dynamic>>> loadStickersFromBinder(String binderId) async {
+    if (_currentUserId == null) {
+      throw Exception('Usuário não autenticado');
+    }
+
+    try {
+      final db = await database;
+      final List<Map<String, dynamic>> maps = await db.query(
+        'binder_stickers',
+        where: 'binder_id = ? AND user_id = ?',
+        whereArgs: [binderId, _currentUserId],
+      );
+
+      return maps.map((map) => Map<String, dynamic>.from(map)).toList();
+    } catch (e) {
+      print('❌ Erro ao carregar adesivos do binder: $e');
+      return [];
+    }
   }
 
   Future<T> _executeOperation<T>(Future<T> Function() operation) async {

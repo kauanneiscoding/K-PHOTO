@@ -751,6 +751,64 @@ class SupabaseService {
     return _client.auth.currentUser;
   }
 
+  /// Salva os adesivos de um binder no Supabase
+  Future<void> saveStickersToSupabase(String binderId, List<Map<String, dynamic>> stickers) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return;
+
+    try {
+      // Remove os stickers antigos do usuário e binder específico
+      await _client
+          .from('binder_stickers')
+          .delete()
+          .eq('user_id', userId)
+          .eq('binder_id', binderId);
+
+      // Insere os novos stickers
+      if (stickers.isNotEmpty) {
+        final entries = stickers.map((sticker) => ({
+              'user_id': userId,
+              'binder_id': binderId,
+              'sticker_id': sticker['sticker_id'],
+              'position_x': sticker['x'],
+              'position_y': sticker['y'],
+              'created_at': DateTime.now().toIso8601String(),
+            })).toList();
+
+        await _client.from('binder_stickers').insert(entries);
+        debugPrint('✅ Adesivos salvos com sucesso no Supabase');
+      }
+    } catch (e) {
+      debugPrint('❌ Erro ao salvar adesivos no Supabase: $e');
+      rethrow;
+    }
+  }
+
+  /// Carrega os adesivos de um binder do Supabase
+  Future<List<Map<String, dynamic>>> loadStickersFromSupabase(String binderId) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return [];
+
+    try {
+      final response = await _client
+          .from('binder_stickers')
+          .select('position_x,position_y,created_at,sticker_id')
+          .eq('binder_id', binderId);
+
+      debugPrint('✅ Adesivos carregados do Supabase: ${response.length} itens');
+      return List<Map<String, dynamic>>.from(response).map((sticker) => {
+        'id': sticker['sticker_id'],
+        'sticker_id': sticker['sticker_id'],
+        'x': sticker['position_x'],
+        'y': sticker['position_y'],
+        'created_at': sticker['created_at'],
+      }).toList();
+    } catch (e) {
+      debugPrint('❌ Erro ao carregar adesivos do Supabase: $e');
+      return [];
+    }
+  }
+
   /// Retorna o stream de atualizações do perfil
   Stream<Map<String, dynamic>?> get profileStream => _profileController.stream;
 

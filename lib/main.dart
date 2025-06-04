@@ -17,6 +17,7 @@ import 'login_page.dart';
 import 'package:k_photo/services/user_sync_service.dart';
 import 'package:k_photo/pages/feed_page.dart';
 import 'package:k_photo/widgets/username_dialog.dart';
+import 'edit_binder_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -126,6 +127,34 @@ class MyApp extends StatelessWidget {
         '/home': (context) => HomePage(
           dataStorageService: dataStorageService,
         ),
+        '/edit-binder': (context) {
+          final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
+          return EditBinderPage(
+            binderId: args['binderId'] as String,
+            currentCover: args['cover'] as String,
+            currentSpine: args['spine'] as String,
+            currentKeychain: args['keychain'] as String?,
+            onCoversChanged: (cover, spine, keychain) async {
+              final dataStorageService = args['dataStorageService'] as DataStorageService;
+              final binderId = args['binderId'] as String;
+              
+              await dataStorageService.updateBinderCovers(
+                binderId,
+                cover,
+                spine,
+              );
+              await dataStorageService.saveBinderKeychain(
+                binderId,
+                keychain ?? '',
+              );
+              
+              // Notificar atualização do binder
+              dataStorageService.notifyBinderUpdate();
+              
+              Navigator.pop(context);
+            },
+          );
+        },
       },
       debugShowCheckedModeBanner: false,
     );
