@@ -236,67 +236,127 @@ class DataStorageService {
     binderUpdateController.close();
   }
 
-  // Salva os adesivos de um binder
+  /// Salva os adesivos de um binder, garantindo IDs consistentes baseados no caminho do sticker
   Future<void> saveStickersOnBinder(String binderId, List<Map<String, dynamic>> stickers) async {
-    if (_currentUserId == null) {
-      throw Exception('Usuário não autenticado');
-    }
-
-    final db = await database;
-    final batch = db.batch();
-    
-    // Primeiro, remove os adesivos existentes para este binder
-    await db.delete(
-      'binder_stickers',
-      where: 'binder_id = ? AND user_id = ?',
-      whereArgs: [binderId, _currentUserId],
-    );
-
-    // Depois insere os novos adesivos
-    if (stickers.isNotEmpty) {
-      final now = DateTime.now().toIso8601String();
-      
-      for (final sticker in stickers) {
-        batch.insert('binder_stickers', {
-          'id': '${binderId}_${sticker['sticker_id']}_${DateTime.now().millisecondsSinceEpoch}',
-          'user_id': _currentUserId,
-          'binder_id': binderId,
-          'sticker_id': sticker['sticker_id'],
-          'pos_x': sticker['pos_x'] ?? 0.0,
-          'pos_y': sticker['pos_y'] ?? 0.0,
-          'scale': sticker['scale'] ?? 1.0,
-          'rotation': sticker['rotation'] ?? 0.0,
-          'image_path': sticker['image_path'],
-          'created_at': now,
-        });
-      }
-      
-      await batch.commit(noResult: true);
-    }
-    
-    notifyBinderUpdate();
-  }
-
-  // Carrega os adesivos de um binder
-  Future<List<Map<String, dynamic>>> loadStickersFromBinder(String binderId) async {
-    if (_currentUserId == null) {
-      throw Exception('Usuário não autenticado');
-    }
+    final userId = _currentUserId;
+    if (userId == null) return;
 
     try {
-      final db = await database;
-      final List<Map<String, dynamic>> maps = await db.query(
-        'binder_stickers',
-        where: 'binder_id = ? AND user_id = ?',
-        whereArgs: [binderId, _currentUserId],
-      );
+      // Primeiro, obtém todos os stickers atuais para este binder
+      final currentStickers = await _supabaseClient
+          .from('binder_stickers')
+          .select('id, sticker_id, pos_x, pos_y, scale, rotation')
+          .eq('user_id', userId)
+          .eq('binder_id', binderId);
 
-      return maps.map((map) => Map<String, dynamic>.from(map)).toList();
+      // Converte para um mapa para acesso rápido por ID
+      final currentStickersMap = {for (var s in currentStickers) s['id'] as String: s};
+
+      // Prepara as operações em lote
+      final List<Future> batch = [];
+
+      for (final sticker in stickers) {
+        final id = sticker['id'] as String;
+        final stickerPath = sticker['sticker_id'] as String; // O caminho do arquivo do sticker
+        final x = (sticker['x'] as num?)?.toDouble() ?? 0.0;
+        final y = (sticker['y'] as num?)?.toDouble() ?? 0.0;
+        final scale = (sticker['scale'] as num?)?.toDouble() ?? 1.0;
+        final rotation = (sticker['rotation'] as num?)?.toDouble() ?? 0.0;
+        final createdAt = sticker['created_at'] ?? DateTime.now().toIso8601String();
+
+        final stickerData = {
+          'user_id': userId,
+          'binder_id': binderId,
+          'sticker_id': stickerPath, // Usa o caminho do arquivo como identificador do tipo
+          'pos_x': x,
+          'pos_y': y,
+          'scale': scale,
+          'rotation': rotation,
+          'image_path': stickerPath, // Armazena o caminho completo da imagem
+          'updated_at': DateTime.now().toIso8601String(),
+        };
+
+        if (currentStickersMap.containsKey(id)) {
+          // Atualiza sticker existente
+          batch.add(_supabaseClient
+              .from('binder_stickers')
+              .update(stickerData)
+              .eq('id', id)
+              .then((_) => null) // Ensure we return a Future<void>
+          );
+        } else {
+          // Insere novo sticker
+          batch.add(_supabaseClient
+              .from('binder_stickers')
+              .insert({...stickerData, 'id': id, 'created_at': createdAt})
+              .then((_) => null) // Ensure we return a Future<void>
+          );
+        }
+      }
+
+
+      // Remove stickers que não estão mais na lista
+      final stickerIds = stickers.map((s) => s['id'] as String).toSet();
+      final stickersToRemove = currentStickers
+          .where((s) => !stickerIds.contains(s['id'] as String))
+          .map((s) => s['id'] as String)
+          .toList();
+
+      if (stickersToRemove.isNotEmpty) {
+        batch.add(_supabaseClient
+            .from('binder_stickers')
+            .delete()
+            .in_('id', stickersToRemove)
+            .then((_) => null) // Ensure we return a Future<void>
+        );
+      }
+
+
+      // Executa todas as operações em paralelo
+      await Future.wait(batch);
     } catch (e) {
-      print('❌ Erro ao carregar adesivos do binder: $e');
+      print('❌ Erro ao salvar adesivos: $e');
+      rethrow;
+    }
+  }
+
+
+
+
+  // Carrega os adesivos de um binder
+  /// Carrega os adesivos de um binder do Supabase, mantendo os IDs originais
+  Future<List<Map<String, dynamic>>> loadStickersFromSupabase(String binderId) async {
+    final userId = _currentUserId;
+    if (userId == null) return [];
+
+    try {
+      final response = await _supabaseClient
+          .from('binder_stickers')
+          .select()
+          .eq('user_id', userId)
+          .eq('binder_id', binderId);
+
+      if (response == null || response.isEmpty) {
+        return [];
+      }
+
+      return (response as List).map<Map<String, dynamic>>((sticker) {
+        return {
+          'id': sticker['id'], // Mantém o ID original do banco de dados
+          'sticker_id': sticker['sticker_id'] as String? ?? '', // Caminho do arquivo do sticker
+          'x': (sticker['pos_x'] as num?)?.toDouble() ?? 0.0,
+          'y': (sticker['pos_y'] as num?)?.toDouble() ?? 0.0,
+          'scale': (sticker['scale'] as num?)?.toDouble() ?? 1.0,
+          'rotation': (sticker['rotation'] as num?)?.toDouble() ?? 0.0,
+          'created_at': sticker['created_at'] ?? DateTime.now().toIso8601String(),
+        };
+      }).toList();
+    } catch (e) {
+      print('❌ Erro ao carregar adesivos: $e');
       return [];
     }
   }
+
 
   Future<T> _executeOperation<T>(Future<T> Function() operation) async {
     while (_isExecuting) {

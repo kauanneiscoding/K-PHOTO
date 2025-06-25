@@ -78,34 +78,97 @@ class StickerService {
     }
   }
 
-  // Salva adesivos no Supabase
+  // Salva ou atualiza adesivos no Supabase
   Future<void> _saveStickersToSupabase(
       String binderId, List<StickerData> stickers) async {
     try {
       final userId = _supabase.auth.currentUser?.id;
       if (userId == null) return;
 
-      // Remove os adesivos antigos
-      await _supabase
+      // Busca os stickers existentes
+      final existingStickers = await _supabase
           .from('binder_stickers')
-          .delete()
+          .select('id, sticker_id, pos_x, pos_y, scale, rotation')
           .eq('user_id', userId)
           .eq('binder_id', binderId);
 
-      // Prepara os novos adesivos para inserção
-      if (stickers.isNotEmpty) {
-        final entries = stickers.map((sticker) => ({
-              'user_id': userId,
-              'binder_id': binderId,
-              'sticker_id': sticker.id,
-              'pos_x': sticker.x,
-              'pos_y': sticker.y,
-              'scale': sticker.scale,
-              'rotation': sticker.rotation,
-              'image_path': sticker.imagePath,
-            })).toList();
+      // Separa os stickers em novos e existentes
+      final List<Map<String, dynamic>> newStickers = [];
+      final List<Map<String, dynamic>> updatedStickers = [];
+      final Set<String> existingStickerIds = (existingStickers as List?)?.map((s) => s['id'] as String).toSet() ?? {};
 
-        await _supabase.from('binder_stickers').insert(entries);
+      for (final sticker in stickers) {
+        // Verifica se o sticker já existe comparando pelo ID
+        final existingSticker = (existingStickers as List?)?.firstWhere(
+          (s) => s['id'] == sticker.id,  // Compara com o ID do sticker
+          orElse: () => null,
+        );
+
+        final stickerData = {
+          'user_id': userId,
+          'binder_id': binderId,
+          'sticker_id': sticker.id,  // Usa o ID do sticker como sticker_id
+          'pos_x': sticker.x,
+          'pos_y': sticker.y,
+          'scale': sticker.scale,
+          'rotation': sticker.rotation,
+          'image_path': sticker.imagePath,
+        };
+        
+        // Se encontrou um sticker existente, mantém o ID original
+        if (existingSticker != null) {
+          stickerData['id'] = existingSticker['id'];
+        } else {
+          // Para novos stickers, define o ID fornecido
+          stickerData['id'] = sticker.id;
+        }
+
+        if (existingSticker != null) {
+          // Atualiza apenas se a posição, escala ou rotação mudaram
+          if (existingSticker['pos_x'] != sticker.x ||
+              existingSticker['pos_y'] != sticker.y ||
+              existingSticker['scale'] != sticker.scale ||
+              existingSticker['rotation'] != sticker.rotation) {
+            updatedStickers.add({
+              'id': existingSticker['id'],
+              ...stickerData,
+            });
+          }
+        } else {
+          newStickers.add(stickerData);
+        }
+      }
+
+
+      // Remove stickers que não estão mais na lista
+      final stickerIds = stickers.map((s) => s.id).toList();
+      if (stickerIds.isNotEmpty) {
+        await _supabase
+            .from('binder_stickers')
+            .delete()
+            .eq('user_id', userId)
+            .eq('binder_id', binderId)
+            .not('id', 'in', stickerIds);
+      }
+
+      // Insere novos stickers
+      if (newStickers.isNotEmpty) {
+        await _supabase.from('binder_stickers').insert(newStickers);
+      }
+
+      // Atualiza stickers existentes
+      for (final sticker in updatedStickers) {
+        final id = sticker['id'];
+        await _supabase
+            .from('binder_stickers')
+            .update({
+              'pos_x': sticker['pos_x'],
+              'pos_y': sticker['pos_y'],
+              'scale': sticker['scale'],
+              'rotation': sticker['rotation'],
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('id', id);
       }
     } catch (e) {
       print('⚠️ Erro ao salvar adesivos no Supabase: $e');

@@ -57,41 +57,54 @@ class _EditBinderPageState extends State<EditBinderPage>
   }
   
   /// Adiciona um novo adesivo à capa
-  void _addSticker(String stickerId, Offset position) {
-    setState(() {
-      final uuid = const Uuid();
-      final stickerUuid = uuid.v4();
-      
-      // Verifica se já existe um sticker com a mesma posição
-      final samePositionStickers = _stickersOnBinder.where(
-        (sticker) => 
-          (sticker['x'] as double? ?? 0) == position.dx && 
-          (sticker['y'] as double? ?? 0) == position.dy,
-      ).toList();
-      
-      if (samePositionStickers.isEmpty) {
-        _stickersOnBinder.add({
-          'id': stickerUuid,
-          'sticker_id': stickerId,
-          'x': position.dx,
-          'y': position.dy,
-          'created_at': DateTime.now().toIso8601String(),
-        });
-      } else {
-        debugPrint('❌ Não é possível adicionar sticker na mesma posição');
-      }
-    });
+  // Gera um ID único para uma instância de adesivo
+  String generateStickerInstanceId(String binderId, String stickerId, double x, double y) {
+    // Usa um hash dos parâmetros para criar um ID consistente
+    final uniqueString = '${binderId}_${stickerId}_${x.toStringAsFixed(2)}_${y.toStringAsFixed(2)}';
+    return uniqueString.hashCode.toString();
+  }
 
-    // Salva as alterações no Supabase
-    _saveStickers().catchError((error) {
-      debugPrint('❌ Erro ao salvar adesivo: $error');
-      // Opcional: reverter a adição em caso de erro
-      setState(() {
-        _stickersOnBinder.removeLast();
+  void _addSticker(String stickerPath, Offset position, {String? existingId}) {
+    setState(() {
+      // Se tivermos um existingId, estamos movendo um sticker existente
+      if (existingId != null) {
+        final existingIndex = _stickersOnBinder.indexWhere((s) => s['id'] == existingId);
+        if (existingIndex != -1) {
+          // Atualiza a posição do sticker existente
+          _stickersOnBinder[existingIndex] = {
+            ..._stickersOnBinder[existingIndex],
+            'x': position.dx,
+            'y': position.dy,
+          };
+          _saveStickers();
+          return;
+        }
+      }
+      
+      // Se chegou aqui, é um novo sticker
+      final uuid = const Uuid();
+      final newId = uuid.v4(); // Gera um ID único para o novo sticker
+      
+      _stickersOnBinder.add({
+        'id': newId, // ID único gerado uma única vez
+        'sticker_id': stickerPath, // caminho do arquivo do sticker
+        'x': position.dx,
+        'y': position.dy,
+        'scale': 1.0,
+        'rotation': 0.0,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+      
+      _saveStickers().catchError((error) {
+        debugPrint('❌ Erro ao salvar adesivo: $error');
+        setState(() {
+          _stickersOnBinder.removeLast();
+        });
       });
     });
   }
-  
+
+
   /// Salva os adesivos no Supabase
   Future<void> _saveStickers() async {
     try {
@@ -233,8 +246,21 @@ class _EditBinderPageState extends State<EditBinderPage>
               },
               onPanEnd: (details) {
                 if (_selectedStickerId != null) {
-                  // Adiciona o adesivo na posição atual
-                  _addSticker(_selectedStickerId!, details.localPosition);
+                  // Atualiza a posição do sticker existente
+                  final stickerIndex = _stickersOnBinder.indexWhere(
+                    (s) => s['sticker_id'] == _selectedStickerId
+                  );
+                  
+                  if (stickerIndex != -1) {
+                    final existingId = _stickersOnBinder[stickerIndex]['id'];
+                    _addSticker(
+                      _selectedStickerId!, 
+                      details.localPosition,
+                      existingId: existingId,
+                    );
+                  } else {
+                    _addSticker(_selectedStickerId!, details.localPosition);
+                  }
                   
                   setState(() {
                     _selectedStickerId = null;
@@ -275,13 +301,16 @@ class _EditBinderPageState extends State<EditBinderPage>
                         },
                         onPanUpdate: (details) {
                           setState(() {
-                            // Atualiza a posição com o deslocamento do gesto
                             final index = _stickersOnBinder.indexWhere((s) => s['id'] == sticker['id']);
                             if (index != -1) {
-                              _stickersOnBinder[index]['x'] = x + details.delta.dx;
-                              _stickersOnBinder[index]['y'] = y + details.delta.dy;
+                              _stickersOnBinder[index]['x'] = (sticker['x'] as double) + details.delta.dx;
+                              _stickersOnBinder[index]['y'] = (sticker['y'] as double) + details.delta.dy;
                             }
                           });
+                        },
+                        onPanEnd: (_) async {
+                          // Salva a nova posição sem criar um novo adesivo
+                          await _saveStickers();
                         },
                         child: Image.asset(
                           'assets/stickers/sticker_${stickerId.replaceAll('sticker', '')}.png',
