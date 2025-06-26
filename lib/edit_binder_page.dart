@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/widgets.dart';
 import 'models/keychain.dart';
 import 'services/supabase_service.dart';
 import 'package:uuid/uuid.dart';  // Importar o pacote UUID
@@ -36,6 +38,7 @@ class _EditBinderPageState extends State<EditBinderPage>
   Offset? _dragPosition;
   double _scale = 1.0;
   double _baseScale = 1.0;
+  bool _isAddingSticker = false;
 
 
 
@@ -66,6 +69,18 @@ class _EditBinderPageState extends State<EditBinderPage>
 
   void _addOrUpdateSticker(String stickerPath, Offset position, {String? existingId}) {
   final uuid = const Uuid();
+
+  // Valida o caminho do sticker
+  if (stickerPath.isEmpty || !stickerPath.contains('sticker')) {
+    debugPrint('❌ Sticker inválido ignorado: $stickerPath');
+    if (mounted) {
+      setState(() {
+        _selectedStickerId = null;
+        _dragPosition = null;
+      });
+    }
+    return;
+  }
 
   // Formata o caminho do sticker para garantir que esteja no formato correto
   String formatStickerPath(String path) {
@@ -263,24 +278,43 @@ class _EditBinderPageState extends State<EditBinderPage>
                   });
                 }
               },
-              onPanEnd: (details) {
-                if (_selectedStickerId != null) {
-                  // Atualiza a posição do sticker existente
-                  final stickerIndex = _stickersOnBinder.indexWhere(
-                    (s) => s['image_path'] == _selectedStickerId
-                  );
+              onPanEnd: (details) async {
+                if (_dragPosition != null &&
+                    _selectedStickerId != null &&
+                    !_isAddingSticker) {
                   
-                  if (stickerIndex != -1) {
-                    final existingId = _stickersOnBinder[stickerIndex]['id'];
-                    _addOrUpdateSticker(
-                      _selectedStickerId!, 
-                      details.localPosition,
-                      existingId: existingId,
+                  setState(() {
+                    _isAddingSticker = true;
+                  });
+
+                  try {
+                    final RenderBox box = context.findRenderObject() as RenderBox;
+                    final localPosition = box.globalToLocal(_dragPosition!);
+                    await Future.delayed(Duration(milliseconds: 50)); // pequena pausa
+                    
+                    // Atualiza a posição do sticker existente
+                    final stickerIndex = _stickersOnBinder.indexWhere(
+                      (s) => s['image_path'] == _selectedStickerId
                     );
-                  } else {
-                    _addOrUpdateSticker(_selectedStickerId!, details.localPosition);
+                    
+                    if (stickerIndex != -1) {
+                      final existingId = _stickersOnBinder[stickerIndex]['id'];
+                      _addOrUpdateSticker(
+                        _selectedStickerId!, 
+                        localPosition,
+                        existingId: existingId,
+                      );
+                    } else {
+                      _addOrUpdateSticker(_selectedStickerId!, localPosition);
+                    }
+                  } finally {
+                    setState(() {
+                      _isAddingSticker = false;
+                      _selectedStickerId = null;
+                      _dragPosition = null;
+                    });
                   }
-                  
+                } else {
                   setState(() {
                     _selectedStickerId = null;
                     _dragPosition = null;
@@ -364,9 +398,9 @@ class _EditBinderPageState extends State<EditBinderPage>
                       left: _dragPosition!.dx - 30,
                       top: _dragPosition!.dy - 30,
                       child: Opacity(
-                        opacity: 0.7,
+                        opacity: 0.8,
                         child: Image.asset(
-                          'assets/stickers/sticker_${_selectedStickerId!.replaceAll('sticker', '')}.png',
+                          _selectedStickerId!,
                           width: 60,
                           height: 60,
                           errorBuilder: (context, error, stackTrace) {
@@ -524,11 +558,26 @@ class _EditBinderPageState extends State<EditBinderPage>
                             children: List.generate(8, (index) {
                               final stickerId = 'sticker${index + 1}';
                               return GestureDetector(
-                                onTapDown: (details) {
-                                  setState(() {
-                                    _selectedStickerId = stickerId;
-                                    _dragPosition = details.globalPosition;
-                                  });
+                                onTapDown: (details) async {
+                                  final stickerPath = 'assets/stickers/sticker_${stickerId.replaceAll('sticker', '')}.png';
+
+                                  try {
+                                    // Tenta carregar o asset
+                                    await rootBundle.load(stickerPath);
+
+                                    // Precarrega a imagem para evitar o frame vazio ou cinza
+                                    await precacheImage(AssetImage(stickerPath), context);
+
+                                    // Só define se for válido e já carregado
+                                    if (mounted) {
+                                      setState(() {
+                                        _selectedStickerId = stickerPath;
+                                        _dragPosition = details.globalPosition;
+                                      });
+                                    }
+                                  } catch (e) {
+                                    debugPrint('❌ Sticker inválido ignorado: $stickerPath');
+                                  }
                                 },
                                 onPanUpdate: (details) {
                                   setState(() {
@@ -537,6 +586,15 @@ class _EditBinderPageState extends State<EditBinderPage>
                                 },
                                 onPanEnd: (details) {
                                   if (_dragPosition != null && _selectedStickerId != null) {
+                                    // Já temos o caminho completo em _selectedStickerId
+                                    if (!_selectedStickerId!.endsWith('.png')) {
+                                      debugPrint('❌ Caminho inválido de adesivo: ${_selectedStickerId}');
+                                      setState(() {
+                                        _selectedStickerId = null;
+                                        _dragPosition = null;
+                                      });
+                                      return;
+                                    }
                                     final RenderBox box = context.findRenderObject() as RenderBox;
                                     final localPosition = box.globalToLocal(_dragPosition!);
                                     _addOrUpdateSticker(_selectedStickerId!, localPosition);
