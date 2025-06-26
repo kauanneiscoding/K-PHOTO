@@ -760,7 +760,7 @@ class SupabaseService {
       // Primeiro, obter os stickers existentes para atualização
       final existingStickers = await _client
           .from('binder_stickers')
-          .select('id, sticker_id, position_x, position_y')
+          .select('id, image_path, position_x, position_y')
           .eq('user_id', userId)
           .eq('binder_id', binderId);
 
@@ -771,9 +771,9 @@ class SupabaseService {
       // Processar cada sticker para atualização ou inserção
       for (final sticker in stickers) {
         final id = sticker['id'] as String;
-        final stickerId = sticker['sticker_id'] as String;
-        final x = (sticker['x'] as num).toDouble();
-        final y = (sticker['y'] as num).toDouble();
+        final imagePath = sticker['image_path'] as String? ?? '';
+        final x = (sticker['x'] as num?)?.toDouble() ?? 0.0;
+        final y = (sticker['y'] as num?)?.toDouble() ?? 0.0;
         final createdAt = sticker['created_at'] as String? ?? DateTime.now().toIso8601String();
 
         // Verificar se já existe um sticker com este ID
@@ -788,7 +788,7 @@ class SupabaseService {
             _client
                 .from('binder_stickers')
                 .update({
-                  'sticker_id': stickerId,
+                  'image_path': imagePath,
                   'position_x': x,
                   'position_y': y,
                 })
@@ -802,7 +802,7 @@ class SupabaseService {
             'id': id,
             'user_id': userId,
             'binder_id': binderId,
-            'sticker_id': stickerId,
+            'image_path': imagePath,
             'position_x': x,
             'position_y': y,
             'created_at': createdAt,
@@ -850,14 +850,14 @@ class SupabaseService {
     try {
       final response = await _client
           .from('binder_stickers')
-          .select('id, sticker_id, position_x, position_y, created_at')
+          .select('id, image_path, position_x, position_y, created_at')
           .eq('user_id', userId)
           .eq('binder_id', binderId);
 
       debugPrint('✅ Adesivos carregados do Supabase: ${response.length} itens');
       return List<Map<String, dynamic>>.from(response).map((sticker) => ({
         'id': sticker['id'],  // Manter o ID original
-        'sticker_id': sticker['sticker_id'],
+        'image_path': sticker['image_path'],
         'x': sticker['position_x'],
         'y': sticker['position_y'],
         'created_at': sticker['created_at'],

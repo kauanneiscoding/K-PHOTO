@@ -88,7 +88,7 @@ class StickerService {
       // Busca os stickers existentes
       final existingStickers = await _supabase
           .from('binder_stickers')
-          .select('id, sticker_id, pos_x, pos_y, scale, rotation')
+          .select('id, image_path, pos_x, pos_y, scale, rotation')
           .eq('user_id', userId)
           .eq('binder_id', binderId);
 
@@ -107,12 +107,11 @@ class StickerService {
         final stickerData = {
           'user_id': userId,
           'binder_id': binderId,
-          'sticker_id': sticker.id,  // Usa o ID do sticker como sticker_id
+          'image_path': sticker.imagePath,
           'pos_x': sticker.x,
           'pos_y': sticker.y,
           'scale': sticker.scale,
           'rotation': sticker.rotation,
-          'image_path': sticker.imagePath,
         };
         
         // Se encontrou um sticker existente, mantém o ID original

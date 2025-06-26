@@ -149,7 +149,6 @@ class DataStorageService {
                 id TEXT PRIMARY KEY,
                 user_id TEXT NOT NULL,
                 binder_id TEXT NOT NULL,
-                sticker_id TEXT NOT NULL,
                 pos_x REAL NOT NULL,
                 pos_y REAL NOT NULL,
                 scale REAL NOT NULL,
@@ -245,7 +244,7 @@ class DataStorageService {
       // Primeiro, obtém todos os stickers atuais para este binder
       final currentStickers = await _supabaseClient
           .from('binder_stickers')
-          .select('id, sticker_id, pos_x, pos_y, scale, rotation')
+          .select('id, image_path, pos_x, pos_y, scale, rotation')
           .eq('user_id', userId)
           .eq('binder_id', binderId);
 
@@ -257,7 +256,7 @@ class DataStorageService {
 
       for (final sticker in stickers) {
         final id = sticker['id'] as String;
-        final stickerPath = sticker['sticker_id'] as String; // O caminho do arquivo do sticker
+        final imagePath = sticker['image_path'] as String? ?? '';
         final x = (sticker['x'] as num?)?.toDouble() ?? 0.0;
         final y = (sticker['y'] as num?)?.toDouble() ?? 0.0;
         final scale = (sticker['scale'] as num?)?.toDouble() ?? 1.0;
@@ -267,13 +266,11 @@ class DataStorageService {
         final stickerData = {
           'user_id': userId,
           'binder_id': binderId,
-          'sticker_id': stickerPath, // Usa o caminho do arquivo como identificador do tipo
+          'image_path': sticker['image_path'], // Usa o caminho do arquivo como identificador do tipo
           'pos_x': x,
           'pos_y': y,
           'scale': scale,
           'rotation': rotation,
-          'image_path': stickerPath, // Armazena o caminho completo da imagem
-          'updated_at': DateTime.now().toIso8601String(),
         };
 
         if (currentStickersMap.containsKey(id)) {
@@ -288,7 +285,13 @@ class DataStorageService {
           // Insere novo sticker
           batch.add(_supabaseClient
               .from('binder_stickers')
-              .insert({...stickerData, 'id': id, 'created_at': createdAt})
+              .insert({
+                ...stickerData,
+                'id': id,
+                'sticker_id': uuid.Uuid().v4(), // Gera um UUID único para o sticker
+                'image_path': imagePath, // Usa o imagePath extraído anteriormente
+                'created_at': createdAt,
+              })
               .then((_) => null) // Ensure we return a Future<void>
           );
         }
@@ -343,7 +346,7 @@ class DataStorageService {
       return (response as List).map<Map<String, dynamic>>((sticker) {
         return {
           'id': sticker['id'], // Mantém o ID original do banco de dados
-          'sticker_id': sticker['sticker_id'] as String? ?? '', // Caminho do arquivo do sticker
+          'image_path': sticker['image_path'] as String? ?? '',
           'x': (sticker['pos_x'] as num?)?.toDouble() ?? 0.0,
           'y': (sticker['pos_y'] as num?)?.toDouble() ?? 0.0,
           'scale': (sticker['scale'] as num?)?.toDouble() ?? 1.0,
