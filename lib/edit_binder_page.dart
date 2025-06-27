@@ -39,6 +39,7 @@ class _EditBinderPageState extends State<EditBinderPage>
   double _scale = 1.0;
   double _baseScale = 1.0;
   bool _isAddingSticker = false;
+  bool _hasUnsavedChanges = false;
 
 
 
@@ -68,6 +69,7 @@ class _EditBinderPageState extends State<EditBinderPage>
   }
 
   void _addOrUpdateSticker(String stickerPath, Offset position, {String? existingId}) {
+    if (!mounted) return;
   final uuid = const Uuid();
 
   // Valida o caminho do sticker
@@ -110,7 +112,7 @@ class _EditBinderPageState extends State<EditBinderPage>
         _stickersOnBinder[existingIndex]['x'] = position.dx;
         _stickersOnBinder[existingIndex]['y'] = position.dy;
       });
-      _saveStickers(); // Atualiza posição no Supabase
+      _hasUnsavedChanges = true;
       return;
     }
   }
@@ -128,16 +130,9 @@ class _EditBinderPageState extends State<EditBinderPage>
 
   setState(() {
     _stickersOnBinder.add(newSticker);
-  });
-
-  _saveStickers().catchError((error) {
-    debugPrint('❌ Erro ao salvar adesivo novo: $error');
-    setState(() {
-      _stickersOnBinder.remove(newSticker);
-    });
+    _hasUnsavedChanges = true;
   });
 }
-
 
   /// Salva os adesivos no Supabase
   Future<void> _saveStickers() async {
@@ -150,35 +145,67 @@ class _EditBinderPageState extends State<EditBinderPage>
           'image_path': sticker['image_path'],
           'x': sticker['x'],
           'y': sticker['y'],
+          'scale': sticker['scale'] ?? 1.0,
+          'rotation': sticker['rotation'] ?? 0.0,
           'created_at': sticker['created_at'],
         })).toList();
         
         await SupabaseService().saveStickersToSupabase(binderId, stickersToSave);
         debugPrint('✅ Adesivos salvos com sucesso');
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Alterações salvas com sucesso!')),
+          );
+          setState(() {
+            _hasUnsavedChanges = false;
+          });
+        }
       }
     } catch (e) {
       debugPrint('❌ Erro ao salvar adesivos: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao salvar: $e')),
+        );
+      }
       rethrow;
     }
   }
   
-  void _updateStickerPosition(String id, Offset position) async {
+  void _updateStickerPosition(String id, Offset position) {
     setState(() {
       final index = _stickersOnBinder.indexWhere((s) => s['id'] == id);
       if (index != -1) {
         _stickersOnBinder[index]['x'] = position.dx;
         _stickersOnBinder[index]['y'] = position.dy;
+        _hasUnsavedChanges = true;
       }
     });
-
-    // Salvar as alterações no Supabase
-    try {
-      await _saveStickers();
-    } catch (e) {
-      debugPrint('❌ Erro ao salvar sticker após redimensionamento: $e');
-    }
   }
-  
+
+  void _onStickerScaleUpdate(ScaleUpdateDetails details, String id) {
+    if (!mounted) return;
+    setState(() {
+      final index = _stickersOnBinder.indexWhere((s) => s['id'] == id);
+      if (index != -1) {
+        _stickersOnBinder[index]['scale'] = _baseScale * details.scale;
+        _hasUnsavedChanges = true;
+      }
+    });
+  }
+
+  void _onStickerRotationUpdate(double angle, String id) {
+    if (!mounted) return;
+    setState(() {
+      final index = _stickersOnBinder.indexWhere((s) => s['id'] == id);
+      if (index != -1) {
+        _stickersOnBinder[index]['rotation'] = angle;
+        _hasUnsavedChanges = true;
+      }
+    });
+  }
+
   // Método auxiliar para obter o ID do binder atual
   // Você precisará implementar isso de acordo com sua lógica de negócios
   Future<String?> _getCurrentBinderId() async {
@@ -235,6 +262,7 @@ class _EditBinderPageState extends State<EditBinderPage>
     
     // Carrega os adesivos do binder
     _loadStickers();
+    _hasUnsavedChanges = false;
   }
 
   @override
@@ -242,233 +270,385 @@ class _EditBinderPageState extends State<EditBinderPage>
     _tabController.dispose();
     super.dispose();
   }
+  
+  Future<bool> _onWillPop() async {
+    if (!_hasUnsavedChanges) {
+      return true;
+    }
+
+    final shouldPop = await showDialog<bool>(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Colors.pink[50]!, Colors.purple[50]!],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.pink[100]!.withOpacity(0.5),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Ícone decorativo
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.pink[100],
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.favorite,
+                  color: Colors.pink[600],
+                  size: 36,
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Título
+              Text(
+                'Opa, espera aí! ✨',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.pink[800],
+                ),
+              ),
+              const SizedBox(height: 12),
+              // Mensagem
+              Text(
+                'Você tem alterações não salvas no seu álbum! O que você gostaria de fazer?',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 15,
+                  color: Colors.grey[800],
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 24),
+              // Botões
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Botão Salvar
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        await _saveStickers();
+                        if (mounted) {
+                          Navigator.of(context).pop(true);
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.pink[400],
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                        elevation: 2,
+                      ),
+                      child: const Text('Salvar e sair'),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  // Botão Continuar editando
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton(
+                      onPressed: () => Navigator.of(context).pop(false),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.grey[600],
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30),
+                          side: BorderSide(color: Colors.grey[400]!),
+                        ),
+                      ),
+                      child: const Text('Continuar editando'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              // Link para descartar
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.pink[600],
+                ),
+                child: const Text(
+                  'Descartar alterações e sair',
+                  style: TextStyle(decoration: TextDecoration.underline),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    return shouldPop ?? false;
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Editar Binder'),
-        actions: [
-          TextButton(
-            onPressed: () async {
-              await _saveStickers(); // 🔧 salva os adesivos no Supabase
-              widget.onCoversChanged(
-                  selectedCover, selectedSpine, selectedKeychain);
-              Navigator.pop(context);
-            },
-            child: Text(
-              'Salvar',
-              style: TextStyle(
-                color: Colors.pink[300],
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ],
-      ),
-      body: Stack(
-        children: [
-          // Visualização da capa e chaveiro
-          Center(
-            child: GestureDetector(
-              onPanUpdate: (details) {
-                if (_selectedStickerId != null && _dragPosition != null) {
-                  setState(() {
-                    _dragPosition = details.globalPosition;
-                  });
-                }
-              },
-              onPanEnd: (details) async {
-                if (_dragPosition != null &&
-                    _selectedStickerId != null &&
-                    !_isAddingSticker) {
-                  
-                  setState(() {
-                    _isAddingSticker = true;
-                  });
-
-                  try {
-                    final RenderBox box = context.findRenderObject() as RenderBox;
-                    final localPosition = box.globalToLocal(_dragPosition!);
-                    await Future.delayed(Duration(milliseconds: 50)); // pequena pausa
-                    
-                    // Atualiza a posição do sticker existente
-                    final stickerIndex = _stickersOnBinder.indexWhere(
-                      (s) => s['image_path'] == _selectedStickerId
-                    );
-                    
-                    if (stickerIndex != -1) {
-                      final existingId = _stickersOnBinder[stickerIndex]['id'];
-                      _addOrUpdateSticker(
-                        _selectedStickerId!, 
-                        localPosition,
-                        existingId: existingId,
-                      );
-                    } else {
-                      _addOrUpdateSticker(_selectedStickerId!, localPosition);
-                    }
-                  } finally {
-                    setState(() {
-                      _isAddingSticker = false;
-                      _selectedStickerId = null;
-                      _dragPosition = null;
-                    });
-                  }
-                } else {
-                  setState(() {
-                    _selectedStickerId = null;
-                    _dragPosition = null;
-                  });
-                }
-              },
-              child: Stack(
-                children: [
-                  // Capa do binder
-                  Align(
-                    alignment: Alignment.center,
-                    child: Container(
-                      width: MediaQuery.of(context).size.width * 0.8,
-                      height: MediaQuery.of(context).size.height * 0.7,
-                      margin: EdgeInsets.only(bottom: 160),
-                      child: Image.asset(
-                        selectedCover,
-                        fit: BoxFit.contain,
-                      ),
+    return WillPopScope(
+      onWillPop: _onWillPop,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Editar Álbum'),
+          actions: [
+            if (_hasUnsavedChanges)
+              Padding(
+                padding: const EdgeInsets.only(right: 8.0),
+                child: Center(
+                  child: Text(
+                    'Não salvo',
+                    style: TextStyle(
+                      color: Colors.orange[300],
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
-                  
-                  // Adesivos na capa
-                  ..._stickersOnBinder.map((sticker) {
-                    final stickerId = sticker['image_path'] as String? ?? '';
-                    final x = (sticker['x'] as num?)?.toDouble() ?? 0.0;
-                    final y = (sticker['y'] as num?)?.toDouble() ?? 0.0;
-                    
-                    return Positioned(
-                      left: x,
-                      top: y,
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _selectedStickerId = sticker['id'];
-                          });
-                        },
-                        onPanUpdate: (details) {
-                          setState(() {
-                            final index = _stickersOnBinder.indexWhere((s) => s['id'] == sticker['id']);
-                            if (index != -1) {
-                              _stickersOnBinder[index]['x'] = (sticker['x'] as double) + details.delta.dx;
-                              _stickersOnBinder[index]['y'] = (sticker['y'] as double) + details.delta.dy;
-                            }
-                          });
-                        },
-                        onPanEnd: (details) {
-                          if (_dragPosition != null && _selectedStickerId != null) {
-                            final RenderBox box = context.findRenderObject() as RenderBox;
-                            final localPosition = box.globalToLocal(_dragPosition!);
-                            _addOrUpdateSticker(
-                              sticker['image_path'],
-                              localPosition,
-                              existingId: sticker['id'],
-                            );
-                          }
+                ),
+              ),
+            IconButton(
+              icon: const Icon(Icons.save),
+              onPressed: _hasUnsavedChanges ? _saveStickers : null,
+              tooltip: 'Salvar alterações',
+            ),
+          ],
+        ),
+        body: Stack(
+          children: [
+            // Coluna principal
+            Column(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onPanUpdate: (details) {
+                      if (_selectedStickerId != null && _dragPosition != null) {
+                        setState(() {
+                          _dragPosition = details.globalPosition;
+                        });
+                      }
+                    },
+                    onPanEnd: (details) async {
+                      if (_dragPosition != null &&
+                          _selectedStickerId != null &&
+                          !_isAddingSticker) {
+                        
+                        setState(() {
+                          _isAddingSticker = true;
+                        });
 
+                        try {
+                          final RenderBox box = context.findRenderObject() as RenderBox;
+                          final localPosition = box.globalToLocal(_dragPosition!);
+                          
+                          // Atualiza a posição do sticker existente
+                          final stickerIndex = _stickersOnBinder.indexWhere(
+                            (s) => s['image_path'] == _selectedStickerId
+                          );
+                          
+                          if (stickerIndex != -1) {
+                            final existingId = _stickersOnBinder[stickerIndex]['id'];
+                            _addOrUpdateSticker(
+                              _selectedStickerId!, 
+                              localPosition,
+                              existingId: existingId,
+                            );
+                          } else {
+                            _addOrUpdateSticker(_selectedStickerId!, localPosition);
+                          }
+                        } finally {
+                          if (mounted) {
+                            setState(() {
+                              _isAddingSticker = false;
+                              _selectedStickerId = null;
+                              _dragPosition = null;
+                            });
+                          }
+                        }
+                      } else {
+                        if (mounted) {
                           setState(() {
                             _selectedStickerId = null;
                             _dragPosition = null;
                           });
-                        },
-                        child: Image.asset(
-                          sticker['image_path'],
-                          width: 60,
-                          height: 60,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Container(
-                              width: 60,
-                              height: 60,
-                              color: Colors.grey[200],
-                              child: Icon(Icons.star, color: Colors.grey[400]),
-                            );
-                          },
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                  if (_selectedStickerId != null && _dragPosition != null)
-                    Positioned(
-                      left: _dragPosition!.dx - 30,
-                      top: _dragPosition!.dy - 30,
-                      child: Opacity(
-                        opacity: 0.8,
-                        child: Image.asset(
-                          _selectedStickerId!,
-                          width: 60,
-                          height: 60,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Container(
-                              width: 60,
-                              height: 60,
-                              color: Colors.grey[200],
-                              child: Icon(Icons.star, color: Colors.grey[400]),
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                  // Chaveiro
-                  if (selectedKeychain != null && selectedKeychain!.isNotEmpty)
-                    Positioned(
-                      left: MediaQuery.of(context).size.width * 0.02,
-                      top: MediaQuery.of(context).size.height * 0.025,
-                      child: Transform(
-                        transform: Matrix4.identity()
-                          ..rotateZ(0)
-                          ..translate(-78.0, 10.0),
-                        alignment: Alignment.topLeft,
-                        child: SizedBox(
-                          width: MediaQuery.of(context).size.width * 0.60,
-                          height: MediaQuery.of(context).size.width * 0.60,
-                          child: Image.asset(
-                            selectedKeychain!,
-                            fit: BoxFit.contain,
+                        }
+                      }
+                    },
+                    child: Stack(
+                      children: [
+                        // Capa do binder
+                        Align(
+                          alignment: Alignment.center,
+                          child: Container(
+                            width: MediaQuery.of(context).size.width * 0.8,
+                            height: MediaQuery.of(context).size.height * 0.7,
+                            margin: const EdgeInsets.only(bottom: 160),
+                            child: Image.asset(
+                              selectedCover,
+                              fit: BoxFit.contain,
+                            ),
                           ),
                         ),
-                      ),
+                        // Adesivos na capa
+                        ..._stickersOnBinder.map((sticker) {
+                          final stickerId = sticker['image_path'] as String? ?? '';
+                          final x = (sticker['x'] as num?)?.toDouble() ?? 0.0;
+                          final y = (sticker['y'] as num?)?.toDouble() ?? 0.0;
+                          
+                          return Positioned(
+                            left: x,
+                            top: y,
+                            child: GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  _selectedStickerId = sticker['id'];
+                                });
+                              },
+                              onPanUpdate: (details) {
+                                setState(() {
+                                  final index = _stickersOnBinder.indexWhere((s) => s['id'] == sticker['id']);
+                                  if (index != -1) {
+                                    _stickersOnBinder[index]['x'] = (sticker['x'] as double) + details.delta.dx;
+                                    _stickersOnBinder[index]['y'] = (sticker['y'] as double) + details.delta.dy;
+                                    _hasUnsavedChanges = true; // Marca que há alterações não salvas
+                                  }
+                                });
+                              },
+                              onPanEnd: (details) {
+                                if (_dragPosition != null && _selectedStickerId != null) {
+                                  final RenderBox box = context.findRenderObject() as RenderBox;
+                                  final localPosition = box.globalToLocal(_dragPosition!);
+                                  _addOrUpdateSticker(
+                                    sticker['image_path'],
+                                    localPosition,
+                                    existingId: sticker['id'],
+                                  );
+                                }
+
+                                setState(() {
+                                  _selectedStickerId = null;
+                                  _dragPosition = null;
+                                });
+                              },
+                              onPanCancel: () {
+                                setState(() {
+                                  _selectedStickerId = null;
+                                  _dragPosition = null;
+                                });
+                              },
+                              child: Image.asset(
+                                sticker['image_path'],
+                                width: 60,
+                                height: 60,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Container(
+                                    width: 60,
+                                    height: 60,
+                                    color: Colors.grey[200],
+                                    child: Icon(Icons.star, color: Colors.grey[400]),
+                                  );
+                                },
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                        if (_selectedStickerId != null && _dragPosition != null)
+                          Positioned(
+                            left: _dragPosition!.dx - 30,
+                            top: _dragPosition!.dy - 30,
+                            child: Opacity(
+                              opacity: 0.8,
+                              child: Image.asset(
+                                _selectedStickerId!,
+                                width: 60,
+                                height: 60,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Container(
+                                    width: 60,
+                                    height: 60,
+                                    color: Colors.grey[200],
+                                    child: Icon(Icons.star, color: Colors.grey[400]),
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                        // Chaveiro
+                        if (selectedKeychain != null && selectedKeychain!.isNotEmpty)
+                          Positioned(
+                            left: MediaQuery.of(context).size.width * 0.02,
+                            top: MediaQuery.of(context).size.height * 0.025,
+                            child: Transform(
+                              transform: Matrix4.identity()
+                                ..rotateZ(0)
+                                ..translate(-78.0, 10.0),
+                              alignment: Alignment.topLeft,
+                              child: SizedBox(
+                                width: MediaQuery.of(context).size.width * 0.60,
+                                height: MediaQuery.of(context).size.width * 0.60,
+                                child: Image.asset(
+                                  selectedKeychain!,
+                                  fit: BoxFit.contain,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
-                ],
-              ),
-            ),
-          ),
-          // Barra de navegação inferior
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: Container(
-              color: Colors.white,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TabBar(
-                    controller: _tabController,
-                    indicatorColor: Colors.pink[300],
-                    labelColor: Colors.pink[300],
-                    unselectedLabelColor: Colors.grey[600],
-                    tabs: [
-                      Tab(text: 'Capas'),
-                      Tab(text: 'Chaveiros'),
-                      Tab(text: 'Adesivos'),
-                    ],
                   ),
-                  Container(
-                    height: 150,
-                    child: TabBarView(
+                ),
+              ],
+            ),
+            // Barra de navegação inferior
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Container(
+                color: Colors.white,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TabBar(
                       controller: _tabController,
-                      children: [
-                        // Aba de Capas
-                        ListView(
-                          scrollDirection: Axis.horizontal,
-                          padding: EdgeInsets.all(8),
-                          children: availableCovers.map((cover) {
+                      indicatorColor: Colors.pink[300],
+                      labelColor: Colors.pink[300],
+                      unselectedLabelColor: Colors.grey[600],
+                      tabs: [
+                        Tab(text: 'Capas'),
+                        Tab(text: 'Chaveiros'),
+                        Tab(text: 'Adesivos'),
+                      ],
+                    ),
+                    Container(
+                      height: 150,
+                      child: TabBarView(
+                        controller: _tabController,
+                        children: [
+                          // Aba de Capas
+                          ListView(
+                            scrollDirection: Axis.horizontal,
+                            padding: EdgeInsets.all(8),
+                            children: availableCovers.map((cover) {
                             final isSelected = selectedCover == cover['cover'];
                             return GestureDetector(
                               onTap: () {
@@ -634,6 +814,6 @@ class _EditBinderPageState extends State<EditBinderPage>
           ),
         ],
       ),
-    );
+    ));
   }
 }
