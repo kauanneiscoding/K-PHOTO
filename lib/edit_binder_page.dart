@@ -32,6 +32,10 @@ class _EditBinderPageState extends State<EditBinderPage>
   late String selectedSpine;
   String? selectedKeychain;
   
+  // Variáveis temporárias para armazenar os caminhos antes de salvar
+  String? _tempCoverPath;
+  String? _tempKeychainPath;
+  
   // Estado dos adesivos
   List<Map<String, dynamic>> _stickersOnBinder = [];
   String? _selectedStickerId;
@@ -134,12 +138,12 @@ class _EditBinderPageState extends State<EditBinderPage>
   });
 }
 
-  /// Salva os adesivos no Supabase
+  /// Salva os adesivos, capas e chaveiros no Supabase
   Future<void> _saveStickers() async {
     try {
       final binderId = await _getCurrentBinderId();
       if (binderId != null) {
-        // Mantém todos os stickers, mesmo com a mesma imagem
+        // Salva os adesivos
         final stickersToSave = _stickersOnBinder.map((sticker) => ({
           'id': sticker['id'],
           'image_path': sticker['image_path'],
@@ -150,8 +154,22 @@ class _EditBinderPageState extends State<EditBinderPage>
           'created_at': sticker['created_at'],
         })).toList();
         
+        // Salva os adesivos no Supabase
         await SupabaseService().saveStickersToSupabase(binderId, stickersToSave);
         debugPrint('✅ Adesivos salvos com sucesso');
+        
+        // Notifica as alterações nas capas e chaveiros
+        if (_tempCoverPath != null || _tempKeychainPath != null) {
+          widget.onCoversChanged(
+            _tempCoverPath ?? selectedCover,
+            selectedSpine, // A lombada é atualizada junto com a capa
+            _tempKeychainPath ?? selectedKeychain,
+          );
+          
+          // Reseta as variáveis temporárias
+          _tempCoverPath = null;
+          _tempKeychainPath = null;
+        }
         
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -163,7 +181,7 @@ class _EditBinderPageState extends State<EditBinderPage>
         }
       }
     } catch (e) {
-      debugPrint('❌ Erro ao salvar adesivos: $e');
+      debugPrint('❌ Erro ao salvar alterações: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Erro ao salvar: $e')),
@@ -256,6 +274,10 @@ class _EditBinderPageState extends State<EditBinderPage>
     selectedCover = widget.currentCover;
     selectedSpine = widget.currentSpine;
     selectedKeychain = widget.currentKeychain;
+    
+    // Inicializa as variáveis temporárias com os valores atuais
+    _tempCoverPath = widget.currentCover;
+    _tempKeychainPath = widget.currentKeychain;
     
     // Inicializa o controlador de abas
     _tabController = TabController(length: 3, vsync: this);
@@ -653,8 +675,10 @@ class _EditBinderPageState extends State<EditBinderPage>
                             return GestureDetector(
                               onTap: () {
                                 setState(() {
+                                  _tempCoverPath = cover['cover']!;
                                   selectedCover = cover['cover']!;
                                   selectedSpine = cover['spine']!;
+                                  _hasUnsavedChanges = true;
                                 });
                               },
                               child: Container(
@@ -685,7 +709,9 @@ class _EditBinderPageState extends State<EditBinderPage>
                             GestureDetector(
                               onTap: () {
                                 setState(() {
+                                  _tempKeychainPath = null;
                                   selectedKeychain = null;
+                                  _hasUnsavedChanges = true;
                                 });
                               },
                               child: Container(
@@ -707,7 +733,9 @@ class _EditBinderPageState extends State<EditBinderPage>
                                 GestureDetector(
                                   onTap: () {
                                     setState(() {
+                                      _tempKeychainPath = keychain.imagePath;
                                       selectedKeychain = keychain.imagePath;
+                                      _hasUnsavedChanges = true;
                                     });
                                   },
                                   child: Container(
