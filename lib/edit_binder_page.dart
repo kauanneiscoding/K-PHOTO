@@ -44,6 +44,7 @@ class _EditBinderPageState extends State<EditBinderPage>
   double _baseScale = 1.0;
   bool _isAddingSticker = false;
   bool _hasUnsavedChanges = false;
+  bool _isDraggingSticker = false;
 
 
 
@@ -191,6 +192,43 @@ class _EditBinderPageState extends State<EditBinderPage>
     }
   }
   
+  // Check if position is over trash can area (top right corner with larger hit area)
+  bool _isOverTrashCan(Offset position, BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    // Larger hit area (150x150) centered around the trash can
+    final trashCanArea = Rect.fromCenter(
+      center: Offset(size.width - 50, 50), // Center of the trash can
+      width: 150,
+      height: 150,
+    );
+    return trashCanArea.contains(position);
+  }
+
+  // Handle sticker drop
+  // Remove a sticker by its ID
+  void _removeSticker(String id) {
+    setState(() {
+      _stickersOnBinder.removeWhere((s) => s['id'] == id);
+      _hasUnsavedChanges = true;
+    });
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Adesivo removido')),
+      );
+    }
+  }
+
+  void _onStickerDrop(String id, Offset position, BuildContext context) {
+    if (_isOverTrashCan(position, context)) {
+      // Remove sticker if dropped on trash can
+      _removeSticker(id);
+    } else {
+      // Update sticker position if not dropped on trash can
+      _updateStickerPosition(id, position);
+    }
+  }
+
   void _updateStickerPosition(String id, Offset position) {
     setState(() {
       final index = _stickersOnBinder.indexWhere((s) => s['id'] == id);
@@ -457,10 +495,41 @@ class _EditBinderPageState extends State<EditBinderPage>
         ),
         body: Stack(
           children: [
-            // Coluna principal
-            Column(
+            // Conteúdo principal com a visualização do binder
+            Stack(
               children: [
-                Expanded(
+                // Trash can icon (visible when dragging any sticker)
+                if (_isDraggingSticker)
+                  Positioned(
+                    right: 10,
+                    top: 10,
+                    child: Container(
+                      // Make the visual touch target larger
+                      width: 60,
+                      height: 60,
+                      alignment: Alignment.center,
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.8),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.2),
+                              blurRadius: 5,
+                              spreadRadius: 1,
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.delete,
+                          color: Colors.white,
+                          size: 30,
+                        ),
+                      ),
+                    ),
+                  ),
+                Positioned.fill(
                   child: GestureDetector(
                     onPanUpdate: (details) {
                       if (_selectedStickerId != null && _dragPosition != null) {
@@ -470,9 +539,7 @@ class _EditBinderPageState extends State<EditBinderPage>
                       }
                     },
                     onPanEnd: (details) async {
-                      if (_dragPosition != null &&
-                          _selectedStickerId != null &&
-                          !_isAddingSticker) {
+                      if (_dragPosition != null && _selectedStickerId != null) {
                         
                         setState(() {
                           _isAddingSticker = true;
@@ -489,13 +556,19 @@ class _EditBinderPageState extends State<EditBinderPage>
                           
                           if (stickerIndex != -1) {
                             final existingId = _stickersOnBinder[stickerIndex]['id'];
-                            _addOrUpdateSticker(
-                              _selectedStickerId!, 
-                              localPosition,
-                              existingId: existingId,
-                            );
+                            if (!_isOverTrashCan(details.globalPosition, context)) {
+                              _addOrUpdateSticker(
+                                _selectedStickerId!, 
+                                localPosition,
+                                existingId: existingId,
+                              );
+                            } else {
+                              _removeSticker(existingId);
+                            }
                           } else {
-                            _addOrUpdateSticker(_selectedStickerId!, localPosition);
+                            if (!_isOverTrashCan(details.globalPosition, context)) {
+                              _addOrUpdateSticker(_selectedStickerId!, localPosition);
+                            }
                           }
                         } finally {
                           if (mounted) {
@@ -545,34 +618,42 @@ class _EditBinderPageState extends State<EditBinderPage>
                                   _selectedStickerId = sticker['id'];
                                 });
                               },
+                              onPanStart: (details) {
+                                setState(() {
+                                  _isDraggingSticker = true;
+                                  _selectedStickerId = sticker['id'];
+                                  _dragPosition = details.globalPosition;
+                                });
+                              },
                               onPanUpdate: (details) {
                                 setState(() {
                                   final index = _stickersOnBinder.indexWhere((s) => s['id'] == sticker['id']);
                                   if (index != -1) {
                                     _stickersOnBinder[index]['x'] = (sticker['x'] as double) + details.delta.dx;
                                     _stickersOnBinder[index]['y'] = (sticker['y'] as double) + details.delta.dy;
-                                    _hasUnsavedChanges = true; // Marca que há alterações não salvas
+                                    _dragPosition = details.globalPosition;
                                   }
                                 });
                               },
                               onPanEnd: (details) {
-                                if (_dragPosition != null && _selectedStickerId != null) {
-                                  final RenderBox box = context.findRenderObject() as RenderBox;
-                                  final localPosition = box.globalToLocal(_dragPosition!);
-                                  _addOrUpdateSticker(
-                                    sticker['image_path'],
-                                    localPosition,
-                                    existingId: sticker['id'],
-                                  );
+                                if (_isOverTrashCan(details.globalPosition, context)) {
+                                  _removeSticker(sticker['id']);
+                                } else {
+                                  final index = _stickersOnBinder.indexWhere((s) => s['id'] == sticker['id']);
+                                  if (index != -1) {
+                                    _hasUnsavedChanges = true;
+                                  }
                                 }
 
                                 setState(() {
+                                  _isDraggingSticker = false;
                                   _selectedStickerId = null;
                                   _dragPosition = null;
                                 });
                               },
                               onPanCancel: () {
                                 setState(() {
+                                  _isDraggingSticker = false;
                                   _selectedStickerId = null;
                                   _dragPosition = null;
                                 });
@@ -582,12 +663,7 @@ class _EditBinderPageState extends State<EditBinderPage>
                                 width: 60,
                                 height: 60,
                                 errorBuilder: (context, error, stackTrace) {
-                                  return Container(
-                                    width: 60,
-                                    height: 60,
-                                    color: Colors.grey[200],
-                                    child: Icon(Icons.star, color: Colors.grey[400]),
-                                  );
+                                  return const SizedBox.shrink();
                                 },
                               ),
                             ),
@@ -596,7 +672,7 @@ class _EditBinderPageState extends State<EditBinderPage>
                         if (_selectedStickerId != null && _dragPosition != null)
                           Positioned(
                             left: _dragPosition!.dx - 30,
-                            top: _dragPosition!.dy - 30,
+                            top: _dragPosition!.dy - 30 - MediaQuery.of(context).padding.top,
                             child: Opacity(
                               opacity: 0.8,
                               child: Image.asset(
@@ -604,12 +680,7 @@ class _EditBinderPageState extends State<EditBinderPage>
                                 width: 60,
                                 height: 60,
                                 errorBuilder: (context, error, stackTrace) {
-                                  return Container(
-                                    width: 60,
-                                    height: 60,
-                                    color: Colors.grey[200],
-                                    child: Icon(Icons.star, color: Colors.grey[400]),
-                                  );
+                                  return const SizedBox.shrink();
                                 },
                               ),
                             ),
@@ -787,12 +858,23 @@ class _EditBinderPageState extends State<EditBinderPage>
                                     debugPrint('❌ Sticker inválido ignorado: $stickerPath');
                                   }
                                 },
+                                onPanStart: (details) {
+                                  setState(() {
+                                    _isDraggingSticker = true;
+                                    _selectedStickerId = 'assets/stickers/sticker_${stickerId.replaceAll('sticker', '')}.png';
+                                    _dragPosition = details.globalPosition;
+                                  });
+                                },
                                 onPanUpdate: (details) {
                                   setState(() {
                                     _dragPosition = details.globalPosition;
                                   });
                                 },
                                 onPanEnd: (details) {
+                                  setState(() {
+                                    _isDraggingSticker = false;
+                                  });
+                                  
                                   if (_dragPosition != null && _selectedStickerId != null) {
                                     // Já temos o caminho completo em _selectedStickerId
                                     if (!_selectedStickerId!.endsWith('.png')) {
