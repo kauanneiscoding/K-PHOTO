@@ -42,11 +42,14 @@ class _EditBinderPageState extends State<EditBinderPage>
   List<Map<String, dynamic>> _stickersOnBinder = [];
   String? _selectedStickerId;
   Offset? _dragPosition;
-  double _scale = 1.0;
-  double _baseScale = 1.0;
   bool _isAddingSticker = false;
   bool _hasUnsavedChanges = false;
   bool _isDraggingSticker = false;
+  
+  // Controles de transformação
+  double _currentRotation = 0.0;
+  double _currentScale = 1.0;
+  double _baseScale = 1.0; // Mantido para compatibilidade com outros lugares do código
 
 
 
@@ -212,9 +215,14 @@ class _EditBinderPageState extends State<EditBinderPage>
   // Handle sticker drop
   // Remove a sticker by its ID
   void _removeSticker(String id) {
+    if (!mounted) return;
+    
     setState(() {
       _stickersOnBinder.removeWhere((s) => s['id'] == id);
       _hasUnsavedChanges = true;
+      _isDraggingSticker = false;
+      _dragPosition = null;
+      _selectedStickerId = null;
     });
     
     if (mounted) {
@@ -250,7 +258,7 @@ class _EditBinderPageState extends State<EditBinderPage>
     setState(() {
       final index = _stickersOnBinder.indexWhere((s) => s['id'] == id);
       if (index != -1) {
-        _stickersOnBinder[index]['scale'] = _baseScale * details.scale;
+        _stickersOnBinder[index]['scale'] = _currentScale;
         _hasUnsavedChanges = true;
       }
     });
@@ -504,33 +512,48 @@ class _EditBinderPageState extends State<EditBinderPage>
             Stack(
               children: [
                 // Trash can icon (visible when dragging any sticker)
+                // Trash can icon (visible when dragging any sticker)
                 if (_isDraggingSticker)
                   Positioned(
                     right: 10,
                     top: 10,
-                    child: Container(
-                      // Make the visual touch target larger
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 100),
                       width: 60,
                       height: 60,
                       alignment: Alignment.center,
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.red.withOpacity(0.8),
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.2),
-                              blurRadius: 5,
-                              spreadRadius: 1,
+                      child: DragTarget<Map<String, dynamic>>(
+                        onWillAccept: (data) => true,
+                        onAccept: (data) {
+                          final stickerId = data['id'];
+                          if (stickerId != null) {
+                            _removeSticker(stickerId);
+                          }
+                        },
+                        builder: (context, candidateData, rejectedData) {
+                          final isOver = candidateData.isNotEmpty;
+                          return Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: isOver 
+                                  ? Colors.red[700] 
+                                  : Colors.red.withOpacity(0.8),
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.2),
+                                  blurRadius: 5,
+                                  spreadRadius: 1,
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
-                        child: const Icon(
-                          Icons.delete,
-                          color: Colors.white,
-                          size: 30,
-                        ),
+                            child: const Icon(
+                              Icons.delete_forever,
+                              color: Colors.white,
+                              size: 30,
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ),
@@ -545,7 +568,6 @@ class _EditBinderPageState extends State<EditBinderPage>
                     },
                     onPanEnd: (details) async {
                       if (_dragPosition != null && _selectedStickerId != null) {
-                        
                         setState(() {
                           _isAddingSticker = true;
                         });
@@ -621,85 +643,98 @@ class _EditBinderPageState extends State<EditBinderPage>
                             left: x,
                             top: y,
                             child: GestureDetector(
-                              onTap: () {
-                                setState(() {
-                                  _selectedStickerId = sticker['id'];
-                                });
-                              },
-                              onScaleStart: (details) {
+                              onPanStart: (details) {
                                 setState(() {
                                   _isDraggingSticker = true;
+                                  _dragPosition = details.globalPosition;
                                   _selectedStickerId = sticker['id'];
-                                  _dragPosition = details.focalPoint;
-                                  _baseScale = scale;
                                 });
                               },
-                              onScaleUpdate: (details) {
-                                setState(() {
-                                  final index = _stickersOnBinder.indexWhere((s) => s['id'] == sticker['id']);
-                                  if (index != -1) {
-                                    // Update position
-                                    if (details.pointerCount == 1) {
-                                      _stickersOnBinder[index]['x'] = x + details.focalPointDelta.dx;
-                                      _stickersOnBinder[index]['y'] = y + details.focalPointDelta.dy;
-                                    }
-                                    
-                                    // Update scale and rotation with two fingers
-                                    if (details.pointerCount == 2) {
-                                      // Scale
-                                      final newScale = _baseScale * details.scale;
-                                      _stickersOnBinder[index]['scale'] = newScale.clamp(0.5, 3.0);
-                                      
-                                      // Rotation - only if scale is not 1.0 to avoid jitter
-                                      if (details.scale != 1.0) {
-                                        _stickersOnBinder[index]['rotation'] = (rotation + details.rotation) % (2 * 3.14159265359);
-                                      }
-                                    }
-                                    
-                                    _dragPosition = details.focalPoint;
+                              onPanUpdate: (details) {
+                                final index = _stickersOnBinder.indexWhere((s) => s['id'] == sticker['id']);
+                                if (index != -1) {
+                                  // Update position directly without setState for smoother movement
+                                  _stickersOnBinder[index]['x'] = x + details.delta.dx;
+                                  _stickersOnBinder[index]['y'] = y + details.delta.dy;
+                                  _dragPosition = details.globalPosition;
+                                  _hasUnsavedChanges = true;
+                                  
+                                  // Force a single frame update for smoothness
+                                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                                    if (mounted) setState(() {});
+                                  });
+                                }
+                              },
+                              onPanEnd: (details) {
+                                final isOverTrash = _isOverTrashCan(_dragPosition ?? Offset.zero, context);
+                                if (isOverTrash && mounted) {
+                                  setState(() {
+                                    _stickersOnBinder.removeWhere((s) => s['id'] == sticker['id']);
                                     _hasUnsavedChanges = true;
+                                    _isDraggingSticker = false;
+                                    _dragPosition = null;
+                                    _selectedStickerId = null;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Adesivo removido')),
+                                    );
+                                  });
+                                } else {
+                                  setState(() {
+                                    _isDraggingSticker = false;
+                                    _dragPosition = null;
+                                  });
+                                }
+                              },
+                              onTap: () {
+                                setState(() {
+                                  _selectedStickerId = _selectedStickerId == sticker['id'] ? null : sticker['id'];
+                                  if (_selectedStickerId == sticker['id']) {
+                                    _currentRotation = rotation;
+                                    _currentScale = scale;
                                   }
                                 });
                               },
-                              onScaleEnd: (details) {
-                                if (_isOverTrashCan(_dragPosition ?? Offset.zero, context)) {
-                                  _removeSticker(sticker['id']);
-                                }
-                                setState(() {
-                                  _isDraggingSticker = false;
-                                  _selectedStickerId = null;
-                                  _dragPosition = null;
-                                });
-                              },
-                              child: Transform.rotate(
-                                angle: rotation,
-                                child: Transform.scale(
-                                  scale: scale,
-                                  child: Container(
-                                    decoration: isSelected
-                                        ? BoxDecoration(
-                                            border: Border.all(
-                                              color: Colors.blue,
-                                              width: 2.0,
-                                            ),
-                                            borderRadius: BorderRadius.circular(4.0),
-                                          )
-                                        : null,
-                                    child: Image.asset(
-                                      sticker['image_path'],
-                                      width: 60,
-                                      height: 60,
-                                      errorBuilder: (context, error, stackTrace) {
-                                        return const SizedBox.shrink();
-                                      },
+
+                              child: Stack(
+                                children: [
+                                  // Sticker com transformações
+                                  Transform.rotate(
+                                    angle: rotation,
+                                    child: Transform.scale(
+                                      scale: scale,
+                                      child: Container(
+                                        // Borda removida daqui para evitar duplicação
+                                        child: Image.asset(
+                                          sticker['image_path'],
+                                          width: 60,
+                                          height: 60,
+                                          errorBuilder: (context, error, stackTrace) {
+                                            return const SizedBox.shrink();
+                                          },
+                                        ),
+                                      ),
                                     ),
                                   ),
-                                ),
+                                  
+                                  // Indicador de seleção (borda azul)
+                                  if (isSelected)
+                                    Positioned.fill(
+                                      child: Container(
+                                        decoration: BoxDecoration(
+                                          border: Border.all(
+                                            color: Colors.blue,
+                                            width: 2.0,
+                                          ),
+                                          borderRadius: BorderRadius.circular(4.0),
+                                        ),
+                                      ),
+                                    ),
+                                ],
                               ),
                             ),
                           );
                         }).toList(),
-                        if (_selectedStickerId != null && _dragPosition != null)
+                        if (_selectedStickerId != null && _dragPosition != null) ...[
                           Positioned(
                             left: _dragPosition!.dx - 30,
                             top: _dragPosition!.dy - 30 - MediaQuery.of(context).padding.top,
@@ -714,33 +749,41 @@ class _EditBinderPageState extends State<EditBinderPage>
                                 },
                               ),
                             ),
-                          ),
+                          )
+                        ],
                         // Chaveiro
-                        if (selectedKeychain != null && selectedKeychain!.isNotEmpty)
-                          Positioned(
-                            left: MediaQuery.of(context).size.width * 0.02,
-                            top: MediaQuery.of(context).size.height * 0.025,
-                            child: Transform(
-                              transform: Matrix4.identity()
-                                ..rotateZ(0)
-                                ..translate(-78.0, 10.0),
-                              alignment: Alignment.topLeft,
-                              child: SizedBox(
-                                width: MediaQuery.of(context).size.width * 0.60,
-                                height: MediaQuery.of(context).size.width * 0.60,
-                                child: Image.asset(
-                                  selectedKeychain!,
-                                  fit: BoxFit.contain,
+                        ...(selectedKeychain != null && selectedKeychain!.isNotEmpty
+                          ? [
+                              Positioned(
+                                left: MediaQuery.of(context).size.width * 0.02,
+                                top: MediaQuery.of(context).size.height * 0.025,
+                                child: Transform(
+                                  transform: Matrix4.identity()
+                                    ..rotateZ(0)
+                                    ..translate(-78.0, 10.0),
+                                  alignment: Alignment.topLeft,
+                                  child: SizedBox(
+                                    width: MediaQuery.of(context).size.width * 0.60,
+                                    height: MediaQuery.of(context).size.width * 0.60,
+                                    child: Image.asset(
+                                      selectedKeychain!,
+                                      fit: BoxFit.contain,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ),
-                          ),
+                              )
+                            ]
+                          : []),
+                        // Os controles de transformação foram movidos para a parte inferior da tela
                       ],
                     ),
                   ),
                 ),
               ],
             ),
+            // Controles de transformação (parte inferior da tela)
+            if (_selectedStickerId != null) _buildTransformationControls(),
+            
             // Barra de navegação inferior
             Positioned(
               left: 0,
@@ -955,5 +998,147 @@ class _EditBinderPageState extends State<EditBinderPage>
         ],
       ),
     ));
+  }
+
+  void _updateSelectedStickerTransformation() {
+    if (_selectedStickerId == null) return;
+
+    final index = _stickersOnBinder.indexWhere((s) => s['id'] == _selectedStickerId);
+    if (index != -1) {
+      setState(() {
+        _stickersOnBinder[index]['scale'] = _currentScale;
+        _stickersOnBinder[index]['rotation'] = _currentRotation;
+        _hasUnsavedChanges = true;
+      });
+    }
+  }
+
+  // Sliders visíveis somente quando um sticker está selecionado
+  Widget _buildTransformationControls() {
+    if (_selectedStickerId == null) return const SizedBox.shrink();
+
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 179, // Aumentado para posicionar mais para cima e mostrar os dois sliders
+      child: Stack(
+        children: [
+          // Container principal com os controles
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 24.0),
+            margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.7),
+              borderRadius: BorderRadius.circular(25.0),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.3),
+                  blurRadius: 10.0,
+                  spreadRadius: 2.0,
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Controle de Escala
+                Row(
+                  children: [
+                    const Icon(Icons.zoom_in, color: Colors.white, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          activeTrackColor: Colors.white,
+                          inactiveTrackColor: Colors.grey[600],
+                          thumbColor: Colors.white,
+                          overlayColor: Colors.white.withOpacity(0.2),
+                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10.0),
+                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 16.0),
+                        ),
+                        child: Slider(
+                          value: _currentScale,
+                          min: 0.5,
+                          max: 3.0,
+                          onChanged: (value) {
+                            setState(() {
+                              _currentScale = value;
+                              final index = _stickersOnBinder.indexWhere((s) => s['id'] == _selectedStickerId);
+                              if (index != -1) {
+                                _stickersOnBinder[index]['scale'] = value;
+                              }
+                            });
+                          },
+                          onChangeEnd: (_) => _updateSelectedStickerTransformation(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${(_currentScale * 100).toInt()}%',
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                // Controle de Rotação
+                Row(
+                  children: [
+                    const Icon(Icons.rotate_right, color: Colors.white, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          activeTrackColor: Colors.white,
+                          inactiveTrackColor: Colors.grey[600],
+                          thumbColor: Colors.white,
+                          overlayColor: Colors.white.withOpacity(0.2),
+                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10.0),
+                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 16.0),
+                        ),
+                        child: Slider(
+                          value: _currentRotation,
+                          min: 0,
+                          max: 2 * 3.14159265359,
+                          onChanged: (value) {
+                            setState(() {
+                              _currentRotation = value;
+                              final index = _stickersOnBinder.indexWhere((s) => s['id'] == _selectedStickerId);
+                              if (index != -1) {
+                                _stickersOnBinder[index]['rotation'] = value;
+                              }
+                            });
+                          },
+                          onChangeEnd: (_) => _updateSelectedStickerTransformation(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${(_currentRotation * 180 / 3.14159265359).toInt()}°',
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          // Botão de fechar posicionado no canto superior direito do painel
+          Positioned(
+            top: 4,
+            right: 8,
+            child: IconButton(
+              icon: const Icon(Icons.close, color: Colors.white, size: 20),
+              padding: const EdgeInsets.all(8.0),
+              onPressed: () {
+                setState(() {
+                  _selectedStickerId = null;
+                });
+              },
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
