@@ -1,10 +1,10 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/sticker_data.dart';
-import 'data_storage_service.dart';
+import 'supabase_service.dart';
 
 class StickerService {
   final _supabase = Supabase.instance.client;
-  final DataStorageService _dataStorage = DataStorageService();
+  final _supabaseService = SupabaseService();
 
   // Carrega adesivos do cache local e sincroniza com o Supabase
   Future<List<StickerData>> getStickersForBinder(String binderId) async {
@@ -28,9 +28,6 @@ class StickerService {
       // Converte para o formato de mapa para armazenamento
       final stickersData = stickers.map((sticker) => sticker.toMap()).toList();
       
-      // Salva localmente
-      await _dataStorage.saveStickersOnBinder(binderId, stickersData);
-      
       // Sincroniza com o Supabase
       await _saveStickersToSupabase(binderId, stickers);
       
@@ -43,8 +40,15 @@ class StickerService {
   // Carrega adesivos do cache local
   Future<List<StickerData>> _loadLocalStickers(String binderId) async {
     try {
-      final stickersData = await _dataStorage.loadStickersFromBinder(binderId);
-      return stickersData.map((data) => StickerData.fromMap(data)).toList();
+      final stickersData = await _supabaseService.loadStickersFromSupabase(binderId);
+      return stickersData.map((data) => StickerData(
+        id: data['id'],
+        imagePath: data['image_path'],
+        x: (data['x'] as num).toDouble(),
+        y: (data['y'] as num).toDouble(),
+        scale: (data['scale'] as num?)?.toDouble() ?? 1.0,
+        rotation: (data['rotation'] as num?)?.toDouble() ?? 0.0,
+      )).toList();
     } catch (e) {
       print('⚠️ Erro ao carregar adesivos locais: $e');
       return [];
@@ -64,14 +68,8 @@ class StickerService {
           .eq('binder_id', binderId);
 
       if (response != null) {
-        final stickers = (response as List)
-            .map((data) => StickerData.fromMap(data))
-            .toList();
-            
-        await _dataStorage.saveStickersOnBinder(
-          binderId, 
-          stickers.map((s) => s.toMap()).toList()
-        );
+        // No need to save to local storage here as we're already syncing with Supabase
+        // The next call to getStickersForBinder will fetch from Supabase
       }
     } catch (e) {
       print('⚠️ Erro ao sincronizar adesivos com Supabase: $e');
@@ -88,7 +86,7 @@ class StickerService {
       // Busca os stickers existentes
       final existingStickers = await _supabase
           .from('binder_stickers')
-          .select('id, image_path, pos_x, pos_y, scale, rotation')
+          .select('id, image_path, position_x, position_y, scale, rotation')
           .eq('user_id', userId)
           .eq('binder_id', binderId);
 
@@ -108,8 +106,8 @@ class StickerService {
           'user_id': userId,
           'binder_id': binderId,
           'image_path': sticker.imagePath,
-          'pos_x': sticker.x,
-          'pos_y': sticker.y,
+          'position_x': sticker.x,
+          'position_y': sticker.y,
           'scale': sticker.scale,
           'rotation': sticker.rotation,
         };
@@ -124,8 +122,8 @@ class StickerService {
 
         if (existingSticker != null) {
           // Atualiza apenas se a posição, escala ou rotação mudaram
-          if (existingSticker['pos_x'] != sticker.x ||
-              existingSticker['pos_y'] != sticker.y ||
+          if (existingSticker['position_x'] != sticker.x ||
+              existingSticker['position_y'] != sticker.y ||
               existingSticker['scale'] != sticker.scale ||
               existingSticker['rotation'] != sticker.rotation) {
             updatedStickers.add({
@@ -161,11 +159,10 @@ class StickerService {
         await _supabase
             .from('binder_stickers')
             .update({
-              'pos_x': sticker['pos_x'],
-              'pos_y': sticker['pos_y'],
+              'position_x': sticker['position_x'],
+              'position_y': sticker['position_y'],
               'scale': sticker['scale'],
-              'rotation': sticker['rotation'],
-              'updated_at': DateTime.now().toIso8601String(),
+              'rotation': sticker['rotation']
             })
             .eq('id', id);
       }

@@ -850,7 +850,7 @@ class SupabaseService {
     try {
       final response = await _client
           .from('binder_stickers')
-          .select('id, image_path, position_x, position_y, created_at')
+          .select('id, image_path, position_x, position_y, scale, rotation, created_at')
           .eq('user_id', userId)
           .eq('binder_id', binderId);
 
@@ -860,6 +860,8 @@ class SupabaseService {
         'image_path': sticker['image_path'],
         'x': sticker['position_x'],
         'y': sticker['position_y'],
+        'scale': sticker['scale'] ?? 1.0,  // Usar valor padrão 1.0 se for nulo
+        'rotation': sticker['rotation'] ?? 0.0,  // Usar valor padrão 0.0 se for nulo
         'created_at': sticker['created_at'],
       })).toList();
     } catch (e) {

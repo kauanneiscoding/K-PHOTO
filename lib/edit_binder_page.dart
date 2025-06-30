@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter/widgets.dart';
 import 'models/keychain.dart';
+import 'models/sticker_data.dart';
 import 'services/supabase_service.dart';
+import 'services/sticker_service.dart';
 import 'package:uuid/uuid.dart';  // Importar o pacote UUID
 
 class EditBinderPage extends StatefulWidget {
@@ -116,6 +118,9 @@ class _EditBinderPageState extends State<EditBinderPage>
       setState(() {
         _stickersOnBinder[existingIndex]['x'] = position.dx;
         _stickersOnBinder[existingIndex]['y'] = position.dy;
+        // Mantém os valores existentes de scale e rotation
+        _stickersOnBinder[existingIndex]['scale'] = _stickersOnBinder[existingIndex]['scale'] ?? 1.0;
+        _stickersOnBinder[existingIndex]['rotation'] = _stickersOnBinder[existingIndex]['rotation'] ?? 0.0;
       });
       _hasUnsavedChanges = true;
       return;
@@ -144,19 +149,19 @@ class _EditBinderPageState extends State<EditBinderPage>
     try {
       final binderId = await _getCurrentBinderId();
       if (binderId != null) {
-        // Salva os adesivos
-        final stickersToSave = _stickersOnBinder.map((sticker) => ({
-          'id': sticker['id'],
-          'image_path': sticker['image_path'],
-          'x': sticker['x'],
-          'y': sticker['y'],
-          'scale': sticker['scale'] ?? 1.0,
-          'rotation': sticker['rotation'] ?? 0.0,
-          'created_at': sticker['created_at'],
-        })).toList();
+        // Converte os mapas para objetos StickerData
+        final stickersToSave = _stickersOnBinder.map((sticker) => StickerData(
+          id: sticker['id'],
+          imagePath: sticker['image_path'],
+          x: (sticker['x'] as num).toDouble(),
+          y: (sticker['y'] as num).toDouble(),
+          scale: (sticker['scale'] as num?)?.toDouble() ?? 1.0,
+          rotation: (sticker['rotation'] as num?)?.toDouble() ?? 0.0,
+        )).toList();
         
         // Salva os adesivos no Supabase
-        await SupabaseService().saveStickersToSupabase(binderId, stickersToSave);
+        final stickerService = StickerService();
+        await stickerService.saveStickers(binderId, stickersToSave);
         debugPrint('✅ Adesivos salvos com sucesso');
         
         // Notifica as alterações nas capas e chaveiros
@@ -608,6 +613,9 @@ class _EditBinderPageState extends State<EditBinderPage>
                           final stickerId = sticker['image_path'] as String? ?? '';
                           final x = (sticker['x'] as num?)?.toDouble() ?? 0.0;
                           final y = (sticker['y'] as num?)?.toDouble() ?? 0.0;
+                          final scale = (sticker['scale'] as num?)?.toDouble() ?? 1.0;
+                          final rotation = (sticker['rotation'] as num?)?.toDouble() ?? 0.0;
+                          final isSelected = _selectedStickerId == sticker['id'];
                           
                           return Positioned(
                             left: x,
@@ -618,53 +626,75 @@ class _EditBinderPageState extends State<EditBinderPage>
                                   _selectedStickerId = sticker['id'];
                                 });
                               },
-                              onPanStart: (details) {
+                              onScaleStart: (details) {
                                 setState(() {
                                   _isDraggingSticker = true;
                                   _selectedStickerId = sticker['id'];
-                                  _dragPosition = details.globalPosition;
+                                  _dragPosition = details.focalPoint;
+                                  _baseScale = scale;
                                 });
                               },
-                              onPanUpdate: (details) {
+                              onScaleUpdate: (details) {
                                 setState(() {
                                   final index = _stickersOnBinder.indexWhere((s) => s['id'] == sticker['id']);
                                   if (index != -1) {
-                                    _stickersOnBinder[index]['x'] = (sticker['x'] as double) + details.delta.dx;
-                                    _stickersOnBinder[index]['y'] = (sticker['y'] as double) + details.delta.dy;
-                                    _dragPosition = details.globalPosition;
-                                  }
-                                });
-                              },
-                              onPanEnd: (details) {
-                                if (_isOverTrashCan(details.globalPosition, context)) {
-                                  _removeSticker(sticker['id']);
-                                } else {
-                                  final index = _stickersOnBinder.indexWhere((s) => s['id'] == sticker['id']);
-                                  if (index != -1) {
+                                    // Update position
+                                    if (details.pointerCount == 1) {
+                                      _stickersOnBinder[index]['x'] = x + details.focalPointDelta.dx;
+                                      _stickersOnBinder[index]['y'] = y + details.focalPointDelta.dy;
+                                    }
+                                    
+                                    // Update scale and rotation with two fingers
+                                    if (details.pointerCount == 2) {
+                                      // Scale
+                                      final newScale = _baseScale * details.scale;
+                                      _stickersOnBinder[index]['scale'] = newScale.clamp(0.5, 3.0);
+                                      
+                                      // Rotation - only if scale is not 1.0 to avoid jitter
+                                      if (details.scale != 1.0) {
+                                        _stickersOnBinder[index]['rotation'] = (rotation + details.rotation) % (2 * 3.14159265359);
+                                      }
+                                    }
+                                    
+                                    _dragPosition = details.focalPoint;
                                     _hasUnsavedChanges = true;
                                   }
+                                });
+                              },
+                              onScaleEnd: (details) {
+                                if (_isOverTrashCan(_dragPosition ?? Offset.zero, context)) {
+                                  _removeSticker(sticker['id']);
                                 }
-
                                 setState(() {
                                   _isDraggingSticker = false;
                                   _selectedStickerId = null;
                                   _dragPosition = null;
                                 });
                               },
-                              onPanCancel: () {
-                                setState(() {
-                                  _isDraggingSticker = false;
-                                  _selectedStickerId = null;
-                                  _dragPosition = null;
-                                });
-                              },
-                              child: Image.asset(
-                                sticker['image_path'],
-                                width: 60,
-                                height: 60,
-                                errorBuilder: (context, error, stackTrace) {
-                                  return const SizedBox.shrink();
-                                },
+                              child: Transform.rotate(
+                                angle: rotation,
+                                child: Transform.scale(
+                                  scale: scale,
+                                  child: Container(
+                                    decoration: isSelected
+                                        ? BoxDecoration(
+                                            border: Border.all(
+                                              color: Colors.blue,
+                                              width: 2.0,
+                                            ),
+                                            borderRadius: BorderRadius.circular(4.0),
+                                          )
+                                        : null,
+                                    child: Image.asset(
+                                      sticker['image_path'],
+                                      width: 60,
+                                      height: 60,
+                                      errorBuilder: (context, error, stackTrace) {
+                                        return const SizedBox.shrink();
+                                      },
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
                           );
