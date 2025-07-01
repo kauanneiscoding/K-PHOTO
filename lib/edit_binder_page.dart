@@ -5,7 +5,136 @@ import 'models/keychain.dart';
 import 'models/sticker_data.dart';
 import 'services/supabase_service.dart';
 import 'services/sticker_service.dart';
-import 'package:uuid/uuid.dart';  // Importar o pacote UUID
+import 'package:uuid/uuid.dart';
+
+class DraggableSticker extends StatefulWidget {
+  final Map<String, dynamic> sticker;
+  final Function(String, Offset) onPositionUpdate;
+  final Function(String) onRemove;
+  final bool isSelected;
+
+  const DraggableSticker({
+    Key? key,
+    required this.sticker,
+    required this.onPositionUpdate,
+    required this.onRemove,
+    this.isSelected = false,
+  }) : super(key: key);
+
+  @override
+  _DraggableStickerState createState() => _DraggableStickerState();
+}
+
+class _DraggableStickerState extends State<DraggableSticker> {
+  late Offset _position;
+  bool _isDragging = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _position = Offset(
+      (widget.sticker['x'] as num).toDouble(),
+      (widget.sticker['y'] as num).toDouble(),
+    );
+  }
+
+  void _onPanStart(DragStartDetails details) {
+    setState(() {
+      _isDragging = true;
+      // Notify parent that we're starting to drag
+      widget.onPositionUpdate(widget.sticker['id'], _position);
+    });
+  }
+
+  void _onPanUpdate(DragUpdateDetails details) {
+    setState(() {
+      _position += details.delta;
+    });
+    
+    // Update parent about the drag position for trash can detection
+    widget.onPositionUpdate(widget.sticker['id'], _position);
+  }
+
+  void _onPanEnd(DragEndDetails details) {
+    setState(() {
+      _isDragging = false;
+    });
+    
+    // Check if we should remove the sticker
+    final RenderBox? renderBox = context.findRenderObject() as RenderBox?;
+    if (renderBox != null) {
+      try {
+        final Offset position = renderBox.localToGlobal(Offset.zero);
+        final double trashCanX = MediaQuery.of(context).size.width - 50; // 50px from right
+        final double trashCanY = 90; // 90px from top
+        final double distance = (position - Offset(trashCanX, trashCanY)).distance;
+        
+        if (distance < 60) { // 60px radius around trash can
+          widget.onRemove(widget.sticker['id']);
+          return; // Early return since the sticker will be removed
+        }
+      } catch (e) {
+        debugPrint('Error calculating trash can distance: $e');
+      }
+    }
+    
+    // If we get here, update the position and notify parent dragging has ended
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        widget.onPositionUpdate(widget.sticker['id'], _position);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: _position.dx,
+      top: _position.dy,
+      child: GestureDetector(
+        onPanStart: _onPanStart,
+        onPanUpdate: _onPanUpdate,
+        onPanEnd: _onPanEnd,
+        onTap: () {
+          // Toggle selection on tap
+          widget.onPositionUpdate(widget.sticker['id'], _position);
+        },
+        child: Stack(
+          children: [
+            Transform.scale(
+              scale: (widget.sticker['scale'] as num?)?.toDouble() ?? 1.0,
+              child: Transform.rotate(
+                angle: (widget.sticker['rotation'] as num?)?.toDouble() ?? 0.0,
+                child: Opacity(
+                  opacity: _isDragging ? 0.8 : 1.0,
+                  child: Image.asset(
+                    widget.sticker['image_path'],
+                    width: 50,
+                    height: 50,
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ),
+            ),
+            // Selection border
+            if (widget.isSelected)
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: Colors.blue,
+                      width: 2.0,
+                    ),
+                    borderRadius: BorderRadius.circular(4.0),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class EditBinderPage extends StatefulWidget {
   final String binderId;
@@ -240,17 +369,20 @@ class _EditBinderPageState extends State<EditBinderPage>
       // Update sticker position if not dropped on trash can
       _updateStickerPosition(id, position);
     }
+    setState(() {
+      _isDraggingSticker = false;
+    });
   }
 
   void _updateStickerPosition(String id, Offset position) {
-    setState(() {
-      final index = _stickersOnBinder.indexWhere((s) => s['id'] == id);
-      if (index != -1) {
+    final index = _stickersOnBinder.indexWhere((s) => s['id'] == id);
+    if (index != -1) {
+      setState(() {
         _stickersOnBinder[index]['x'] = position.dx;
         _stickersOnBinder[index]['y'] = position.dy;
         _hasUnsavedChanges = true;
-      }
-    });
+      });
+    }
   }
 
   void _onStickerScaleUpdate(ScaleUpdateDetails details, String id) {
@@ -511,49 +643,34 @@ class _EditBinderPageState extends State<EditBinderPage>
             // Conteúdo principal com a visualização do binder
             Stack(
               children: [
-                // Trash can icon (visible when dragging any sticker)
-                // Trash can icon (visible when dragging any sticker)
-                if (_isDraggingSticker)
+                // Trash can icon (visible when dragging a selected sticker)
+                if (_isDraggingSticker && _selectedStickerId != null)
                   Positioned(
                     right: 10,
                     top: 10,
                     child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 100),
+                      duration: const Duration(milliseconds: 200),
                       width: 60,
                       height: 60,
                       alignment: Alignment.center,
-                      child: DragTarget<Map<String, dynamic>>(
-                        onWillAccept: (data) => true,
-                        onAccept: (data) {
-                          final stickerId = data['id'];
-                          if (stickerId != null) {
-                            _removeSticker(stickerId);
-                          }
-                        },
-                        builder: (context, candidateData, rejectedData) {
-                          final isOver = candidateData.isNotEmpty;
-                          return Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: isOver 
-                                  ? Colors.red[700] 
-                                  : Colors.red.withOpacity(0.8),
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.2),
-                                  blurRadius: 5,
-                                  spreadRadius: 1,
-                                ),
-                              ],
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.8),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.3),
+                              blurRadius: 8,
+                              spreadRadius: 2,
                             ),
-                            child: const Icon(
-                              Icons.delete_forever,
-                              color: Colors.white,
-                              size: 30,
-                            ),
-                          );
-                        },
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.delete_forever,
+                          color: Colors.white,
+                          size: 30,
+                        ),
                       ),
                     ),
                   ),
@@ -602,6 +719,7 @@ class _EditBinderPageState extends State<EditBinderPage>
                             setState(() {
                               _isAddingSticker = false;
                               _selectedStickerId = null;
+                              _isDraggingSticker = false;
                               _dragPosition = null;
                             });
                           }
@@ -632,106 +750,33 @@ class _EditBinderPageState extends State<EditBinderPage>
                         ),
                         // Adesivos na capa
                         ..._stickersOnBinder.map((sticker) {
-                          final stickerId = sticker['image_path'] as String? ?? '';
-                          final x = (sticker['x'] as num?)?.toDouble() ?? 0.0;
-                          final y = (sticker['y'] as num?)?.toDouble() ?? 0.0;
-                          final scale = (sticker['scale'] as num?)?.toDouble() ?? 1.0;
-                          final rotation = (sticker['rotation'] as num?)?.toDouble() ?? 0.0;
-                          final isSelected = _selectedStickerId == sticker['id'];
-                          
-                          return Positioned(
-                            left: x,
-                            top: y,
-                            child: GestureDetector(
-                              onPanStart: (details) {
+                          return DraggableSticker(
+                            key: ValueKey(sticker['id']),
+                            sticker: sticker,
+                            onPositionUpdate: (id, position) {
+                              final index = _stickersOnBinder.indexWhere((s) => s['id'] == id);
+                              if (index != -1) {
                                 setState(() {
                                   _isDraggingSticker = true;
-                                  _dragPosition = details.globalPosition;
-                                  _selectedStickerId = sticker['id'];
-                                });
-                              },
-                              onPanUpdate: (details) {
-                                final index = _stickersOnBinder.indexWhere((s) => s['id'] == sticker['id']);
-                                if (index != -1) {
-                                  // Update position directly without setState for smoother movement
-                                  _stickersOnBinder[index]['x'] = x + details.delta.dx;
-                                  _stickersOnBinder[index]['y'] = y + details.delta.dy;
-                                  _dragPosition = details.globalPosition;
+                                  _stickersOnBinder[index]['x'] = position.dx;
+                                  _stickersOnBinder[index]['y'] = position.dy;
+                                  _selectedStickerId = id; // Select on drag
                                   _hasUnsavedChanges = true;
-                                  
-                                  // Force a single frame update for smoothness
-                                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                                    if (mounted) setState(() {});
-                                  });
-                                }
-                              },
-                              onPanEnd: (details) {
-                                final isOverTrash = _isOverTrashCan(_dragPosition ?? Offset.zero, context);
-                                if (isOverTrash && mounted) {
-                                  setState(() {
-                                    _stickersOnBinder.removeWhere((s) => s['id'] == sticker['id']);
-                                    _hasUnsavedChanges = true;
-                                    _isDraggingSticker = false;
-                                    _dragPosition = null;
-                                    _selectedStickerId = null;
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Adesivo removido')),
-                                    );
-                                  });
-                                } else {
-                                  setState(() {
-                                    _isDraggingSticker = false;
-                                    _dragPosition = null;
-                                  });
-                                }
-                              },
-                              onTap: () {
-                                setState(() {
-                                  _selectedStickerId = _selectedStickerId == sticker['id'] ? null : sticker['id'];
-                                  if (_selectedStickerId == sticker['id']) {
-                                    _currentRotation = rotation;
-                                    _currentScale = scale;
-                                  }
                                 });
-                              },
-
-                              child: Stack(
-                                children: [
-                                  // Sticker com transformações
-                                  Transform.rotate(
-                                    angle: rotation,
-                                    child: Transform.scale(
-                                      scale: scale,
-                                      child: Container(
-                                        // Borda removida daqui para evitar duplicação
-                                        child: Image.asset(
-                                          sticker['image_path'],
-                                          width: 60,
-                                          height: 60,
-                                          errorBuilder: (context, error, stackTrace) {
-                                            return const SizedBox.shrink();
-                                          },
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  
-                                  // Indicador de seleção (borda azul)
-                                  if (isSelected)
-                                    Positioned.fill(
-                                      child: Container(
-                                        decoration: BoxDecoration(
-                                          border: Border.all(
-                                            color: Colors.blue,
-                                            width: 2.0,
-                                          ),
-                                          borderRadius: BorderRadius.circular(4.0),
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
+                              }
+                            },
+                            onRemove: (id) {
+                              setState(() {
+                                _stickersOnBinder.removeWhere((s) => s['id'] == id);
+                                _selectedStickerId = null;
+                                _isDraggingSticker = false;
+                                _hasUnsavedChanges = true;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Adesivo removido')),
+                                );
+                              });
+                            },
+                            isSelected: _selectedStickerId == sticker['id'],
                           );
                         }).toList(),
                         if (_selectedStickerId != null && _dragPosition != null) ...[
