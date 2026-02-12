@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart' show rootBundle, HapticFeedback;
 import 'package:flutter/widgets.dart';
 import 'models/keychain.dart';
 import 'models/sticker_data.dart';
@@ -156,8 +156,50 @@ class EditBinderPage extends StatefulWidget {
   State<EditBinderPage> createState() => _EditBinderPageState();
 }
 
-class _EditBinderPageState extends State<EditBinderPage>
-    with SingleTickerProviderStateMixin {
+class _EditBinderPageState extends State<EditBinderPage> with SingleTickerProviderStateMixin {
+  // Key para acessar o tamanho e posição da capa
+  final GlobalKey _capaKey = GlobalKey();
+  
+  // Converte coordenadas da tela para coordenadas relativas à capa
+  Offset _getRelativeToCover(Offset screenPosition) {
+    final RenderBox? coverBox = _capaKey.currentContext?.findRenderObject() as RenderBox?;
+    if (coverBox == null) return screenPosition;
+    
+    // Obtém a posição da capa na tela
+    final coverPosition = coverBox.localToGlobal(Offset.zero);
+    final coverSize = coverBox.size;
+    
+    // Calcula a posição relativa à capa
+    final relativeX = (screenPosition.dx - coverPosition.dx) / coverSize.width;
+    final relativeY = (screenPosition.dy - coverPosition.dy) / coverSize.height;
+    
+    return Offset(relativeX, relativeY);
+  }
+  
+  // Converte coordenadas relativas à capa para coordenadas absolutas na tela
+  Offset _getAbsoluteFromCover(Offset relativePosition) {
+    final RenderBox? renderBox = _capaKey.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox == null) {
+      debugPrint('⚠️ RenderBox is null in _getAbsoluteFromCover');
+      return Offset.zero;
+    }
+    
+    try {
+      final box = renderBox;
+      final position = box.localToGlobal(Offset.zero);
+      final size = box.size;
+      
+      debugPrint('📏 Cover position: $position, size: $size');
+      
+      return Offset(
+        position.dx + (relativePosition.dx * size.width),
+        position.dy + (relativePosition.dy * size.height),
+      );
+    } catch (e) {
+      debugPrint('❌ Error in _getAbsoluteFromCover: $e');
+      return Offset.zero;
+    }
+  }
   late TabController _tabController;
   late String selectedCover;
   late String selectedSpine;
@@ -209,36 +251,49 @@ class _EditBinderPageState extends State<EditBinderPage>
 
   void _addOrUpdateSticker(String stickerPath, Offset position, {String? existingId}) {
     if (!mounted) return;
-  final uuid = const Uuid();
+    final uuid = const Uuid();
+    
+    debugPrint('➕ Adding/Updating sticker at position: $position');
 
-  // Valida o caminho do sticker
-  if (stickerPath.isEmpty || !stickerPath.contains('sticker')) {
-    debugPrint('❌ Sticker inválido ignorado: $stickerPath');
-    if (mounted) {
-      setState(() {
-        _selectedStickerId = null;
-        _dragPosition = null;
-      });
+    // Valida o caminho do sticker
+    if (stickerPath.isEmpty) {
+      debugPrint('❌ Caminho do sticker vazio');
+      return;
     }
-    return;
-  }
 
   // Formata o caminho do sticker para garantir que esteja no formato correto
   String formatStickerPath(String path) {
-    // Se já começar com 'assets/stickers/', retorna como está
-    if (path.startsWith('assets/stickers/')) {
+    debugPrint('🔧 Formatting sticker path: $path');
+    
+    // Se já estiver no formato correto, retorna como está
+    if (path.startsWith('assets/') && (path.endsWith('.png') || path.endsWith('.jpg'))) {
+      debugPrint('✅ Path já está formatado corretamente');
       return path;
     }
-    // Se for apenas 'sticker1', 'sticker2', etc., adiciona o caminho completo
+    
+    // Se for apenas 'sticker1', 'sticker2', etc.
     if (path.startsWith('sticker')) {
-      final number = path.replaceAll('sticker', '');
-      return 'assets/stickers/sticker_$number.png';
+      final number = path.replaceAll('sticker', '').replaceAll('_', '');
+      final formatted = 'assets/stickers/sticker_$number.png';
+      debugPrint('🔄 Convertido para: $formatted');
+      return formatted;
     }
-    // Se for apenas um número, adiciona o prefixo e sufixo
+    
+    // Se for apenas um número
     if (int.tryParse(path) != null) {
-      return 'assets/stickers/sticker_$path.png';
+      final formatted = 'assets/stickers/sticker_$path.png';
+      debugPrint('🔢 Número convertido para: $formatted');
+      return formatted;
     }
-    // Caso contrário, retorna como está
+    
+    // Se não for reconhecido, tenta adicionar o caminho base
+    if (!path.startsWith('assets/')) {
+      final formatted = 'assets/stickers/$path${path.endsWith('.png') ? '' : '.png'}';
+      debugPrint('✨ Adicionado caminho base: $formatted');
+      return formatted;
+    }
+    
+    debugPrint('⚠️ Retornando path sem modificação: $path');
     return path;
   }
 
@@ -332,12 +387,23 @@ class _EditBinderPageState extends State<EditBinderPage>
   // Check if position is over trash can area (top right corner with larger hit area)
   bool _isOverTrashCan(Offset position, BuildContext context) {
     final size = MediaQuery.of(context).size;
-    // Larger hit area (150x150) centered around the trash can
-    final trashCanArea = Rect.fromCenter(
-      center: Offset(size.width - 50, 50), // Center of the trash can
-      width: 150,
-      height: 150,
+    
+    // Tamanho da área de detecção da lixeira
+    final double trashCanSize = 100.0; // Tamanho aumentado para facilitar o acerto
+    
+    // Posição da lixeira (canto superior direito)
+    final double trashCanX = size.width - trashCanSize - 16; // 16 pixels de margem
+    final double trashCanY = 16.0; // 16 pixels do topo
+    
+    // Cria um retângulo para a área da lixeira
+    final trashCanArea = Rect.fromLTWH(
+      trashCanX,
+      trashCanY,
+      trashCanSize,
+      trashCanSize,
     );
+    
+    // Verifica se a posição está dentro da área da lixeira
     return trashCanArea.contains(position);
   }
 
@@ -346,12 +412,21 @@ class _EditBinderPageState extends State<EditBinderPage>
   void _removeSticker(String id) {
     if (!mounted) return;
     
+    // Encontra o índice do adesivo a ser removido
+    final index = _stickersOnBinder.indexWhere((s) => s['id'] == id);
+    if (index == -1) return; // Se não encontrar, sai da função
+    
     setState(() {
-      _stickersOnBinder.removeWhere((s) => s['id'] == id);
+      // Remove o adesivo da lista
+      _stickersOnBinder.removeAt(index);
       _hasUnsavedChanges = true;
       _isDraggingSticker = false;
       _dragPosition = null;
-      _selectedStickerId = null;
+      
+      // Se o adesivo removido era o selecionado, limpa a seleção
+      if (_selectedStickerId == id) {
+        _selectedStickerId = null;
+      }
     });
     
     if (mounted) {
@@ -361,25 +436,65 @@ class _EditBinderPageState extends State<EditBinderPage>
     }
   }
 
-  void _onStickerDrop(String id, Offset position, BuildContext context) {
-    if (_isOverTrashCan(position, context)) {
-      // Remove sticker if dropped on trash can
-      _removeSticker(id);
-    } else {
-      // Update sticker position if not dropped on trash can
-      _updateStickerPosition(id, position);
+  void _onStickerDrop(String id, Offset fingerPosition, BuildContext context) {
+    try {
+      // Verifica se o dedo está sobre a lixeira
+      if (_isOverTrashCan(fingerPosition, context)) {
+        // Mostra um feedback visual antes de remover
+        HapticFeedback.mediumImpact();
+        
+        // Remove o adesivo após um pequeno atraso para dar feedback visual
+        Future.delayed(const Duration(milliseconds: 100), () {
+          if (mounted) {
+            _removeSticker(id);
+          }
+        });
+      } else {
+        // Obtém a posição e tamanho da capa
+        final RenderBox? renderBox = _capaKey.currentContext?.findRenderObject() as RenderBox?;
+        if (renderBox != null) {
+          final Size capaSize = renderBox.size;
+          final Offset capaPosition = renderBox.localToGlobal(Offset.zero);
+          
+          // Calcula a posição relativa à capa
+          final Offset localPosition = fingerPosition - capaPosition;
+          
+          // Verifica se o dedo está dentro dos limites da capa
+          final bool isInsideCover = localPosition.dx >= 0 && 
+                                    localPosition.dy >= 0 &&
+                                    localPosition.dx <= capaSize.width &&
+                                    localPosition.dy <= capaSize.height;
+          
+          if (isInsideCover) {
+            // Normaliza as coordenadas (0.0 a 1.0)
+            final double normalizedX = (localPosition.dx / capaSize.width).clamp(0.0, 1.0);
+            final double normalizedY = (localPosition.dy / capaSize.height).clamp(0.0, 1.0);
+            
+            _updateStickerPosition(id, Offset(normalizedX, normalizedY));
+          } else {
+            // Se soltou fora da capa, não faz nada (mantém a posição anterior)
+            debugPrint('🔄 Adesivo solto fora da capa');
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Erro ao soltar adesivo: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDraggingSticker = false;
+        });
+      }
     }
-    setState(() {
-      _isDraggingSticker = false;
-    });
   }
 
-  void _updateStickerPosition(String id, Offset position) {
+  void _updateStickerPosition(String id, Offset normalizedPosition) {
     final index = _stickersOnBinder.indexWhere((s) => s['id'] == id);
     if (index != -1) {
       setState(() {
-        _stickersOnBinder[index]['x'] = position.dx;
-        _stickersOnBinder[index]['y'] = position.dy;
+        // Store normalized position (0.0 to 1.0)
+        _stickersOnBinder[index]['x'] = normalizedPosition.dx;
+        _stickersOnBinder[index]['y'] = normalizedPosition.dy;
         _hasUnsavedChanges = true;
       });
     }
@@ -744,40 +859,70 @@ class _EditBinderPageState extends State<EditBinderPage>
                             margin: const EdgeInsets.only(bottom: 160),
                             child: Image.asset(
                               selectedCover,
+                              key: _capaKey,
                               fit: BoxFit.contain,
                             ),
                           ),
                         ),
                         // Adesivos na capa
                         ..._stickersOnBinder.map((sticker) {
-                          return DraggableSticker(
-                            key: ValueKey(sticker['id']),
-                            sticker: sticker,
-                            onPositionUpdate: (id, position) {
-                              final index = _stickersOnBinder.indexWhere((s) => s['id'] == id);
-                              if (index != -1) {
+                          try {
+                            final x = (sticker['x'] ?? 0.0).toDouble();
+                            final y = (sticker['y'] ?? 0.0).toDouble();
+                            
+                            debugPrint('📍 Sticker original position - x: $x, y: $y');
+                            
+                            // Cria uma cópia do sticker para não modificar o original
+                            final Map<String, dynamic> stickerForRendering = Map<String, dynamic>.from(sticker);
+                            
+                            // Se as coordenadas já estão em pixels (maiores que 1.0), assume que são absolutas
+                            if (x > 1.0 || y > 1.0) {
+                              debugPrint('📌 Usando posição absoluta');
+                              stickerForRendering['x'] = x;
+                              stickerForRendering['y'] = y;
+                            } else {
+                              debugPrint('📐 Convertendo posição relativa para absoluta');
+                              final absolutePosition = _getAbsoluteFromCover(Offset(x, y));
+                              debugPrint('🎯 Posição absoluta calculada: $absolutePosition');
+                              stickerForRendering['x'] = absolutePosition.dx;
+                              stickerForRendering['y'] = absolutePosition.dy;
+                            }
+                            
+                            return DraggableSticker(
+                              key: ValueKey(sticker['id']),
+                              sticker: stickerForRendering,
+                              onPositionUpdate: (id, position) {
+                                final index = _stickersOnBinder.indexWhere((s) => s['id'] == id);
+                                if (index != -1) {
+                                  setState(() {
+                                    _isDraggingSticker = true;
+                                    final relativePosition = _getRelativeToCover(position);
+                                    _stickersOnBinder[index]['x'] = relativePosition.dx;
+                                    _stickersOnBinder[index]['y'] = relativePosition.dy;
+                                    _selectedStickerId = id; // Select on drag
+                                    _hasUnsavedChanges = true;
+                                  });
+                                }
+                              },
+                              onRemove: (id) {
                                 setState(() {
-                                  _isDraggingSticker = true;
-                                  _stickersOnBinder[index]['x'] = position.dx;
-                                  _stickersOnBinder[index]['y'] = position.dy;
-                                  _selectedStickerId = id; // Select on drag
+                                  _stickersOnBinder.removeWhere((s) => s['id'] == id);
+                                  _selectedStickerId = null;
+                                  _isDraggingSticker = false;
                                   _hasUnsavedChanges = true;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Adesivo removido')),
+                                  );
                                 });
-                              }
-                            },
-                            onRemove: (id) {
-                              setState(() {
-                                _stickersOnBinder.removeWhere((s) => s['id'] == id);
-                                _selectedStickerId = null;
-                                _isDraggingSticker = false;
-                                _hasUnsavedChanges = true;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Adesivo removido')),
-                                );
-                              });
-                            },
-                            isSelected: _selectedStickerId == sticker['id'],
-                          );
+                              },
+                              isSelected: _selectedStickerId == sticker['id'],
+                            );
+                          } catch (e) {
+                            debugPrint('❌ Erro ao renderizar sticker: $e');
+                            return const SizedBox.shrink();
+                          }
+                          
+
                         }).toList(),
                         if (_selectedStickerId != null && _dragPosition != null) ...[
                           Positioned(
