@@ -7,6 +7,7 @@ import 'dart:math';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart' as uuid;
+import 'models/profile_wall.dart';
 
 class StoreCard {
   final String imagePath;
@@ -1981,6 +1982,138 @@ Future<void> syncBinders() async {
       }
     } catch (e) {
       print('Erro ao criar novo binder: $e');
+    }
+  }
+
+  // Métodos para gerenciar o mural do perfil
+  Future<List<ProfileWallSlot>> getProfileWall() async {
+    if (_currentUserId == null) return [];
+
+    try {
+      final response = await _supabaseClient
+          .from('profile_wall')
+          .select('*')
+          .eq('user_id', _currentUserId!)
+          .order('position');
+
+      return List<ProfileWallSlot>.from(
+        response.map((item) => ProfileWallSlot.fromMap(item))
+      );
+    } catch (e) {
+      debugPrint('❌ Erro ao carregar mural do perfil: $e');
+      return [];
+    }
+  }
+
+  Future<void> placePhotocardOnWall({
+    required int position,
+    required String photocardInstanceId,
+    required String photocardImagePath,
+  }) async {
+    if (_currentUserId == null) return;
+
+    try {
+      // Primeiro, remove o photocard da localização atual
+      await _removePhotocardFromCurrentLocation(photocardInstanceId);
+
+      // Depois, coloca no mural
+      await _supabaseClient
+          .from('profile_wall')
+          .upsert({
+            'user_id': _currentUserId,
+            'position': position,
+            'photocard_instance_id': photocardInstanceId,
+            'photocard_image_path': photocardImagePath,
+            'placed_at': DateTime.now().toIso8601String(),
+          }, onConflict: 'user_id,position');
+
+      // Atualiza a tabela inventory para refletir a nova localização
+      await _supabaseClient
+          .from('inventory')
+          .update({'location': 'profile_wall'})
+          .eq('instance_id', photocardInstanceId)
+          .eq('user_id', _currentUserId!);
+
+      debugPrint('✅ Photocard colocado no mural do perfil na posição $position');
+    } catch (e) {
+      debugPrint('❌ Erro ao colocar photocard no mural: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> removePhotocardFromWall(int position) async {
+    if (_currentUserId == null) return;
+
+    try {
+      // Primeiro, obtém o photocard na posição
+      final wallSlots = await getProfileWall();
+      final slot = wallSlots.firstWhere((s) => s.position == position);
+      
+      if (!slot.isEmpty) {
+        // Move o photocard de volta para a mochila
+        await _supabaseClient
+            .from('inventory')
+            .update({'location': 'backpack'})
+            .eq('instance_id', slot.photocardInstanceId!)
+            .eq('user_id', _currentUserId!);
+
+        // Remove do mural
+        await _supabaseClient
+            .from('profile_wall')
+            .delete()
+            .eq('user_id', _currentUserId!)
+            .eq('position', position);
+
+        debugPrint('✅ Photocard removido do mural e movido para a mochila');
+      }
+    } catch (e) {
+      debugPrint('❌ Erro ao remover photocard do mural: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> _removePhotocardFromCurrentLocation(String photocardInstanceId) async {
+    if (_currentUserId == null) return;
+
+    try {
+      // Verifica se está em outro slot do mural
+      final currentWallSlots = await getProfileWall();
+      for (final slot in currentWallSlots) {
+        if (slot.photocardInstanceId == photocardInstanceId) {
+          await _supabaseClient
+              .from('profile_wall')
+              .delete()
+              .eq('user_id', _currentUserId!)
+              .eq('position', slot.position);
+          break;
+        }
+      }
+
+      // Atualiza a localização na tabela inventory
+      await _supabaseClient
+          .from('inventory')
+          .update({'location': 'profile_wall'})
+          .eq('instance_id', photocardInstanceId)
+          .eq('user_id', _currentUserId!);
+    } catch (e) {
+      debugPrint('❌ Erro ao remover photocard da localização atual: $e');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getAllUserPhotocards() async {
+    if (_currentUserId == null) return [];
+
+    try {
+      final response = await _supabaseClient
+          .from('inventory')
+          .select('instance_id, image_path, location, binder_id, slot_index, page_number')
+          .eq('user_id', _currentUserId!)
+          .neq('location', 'profile_wall'); // Exclui os que já estão no mural
+
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      debugPrint('❌ Erro ao obter todos os photocards do usuário: $e');
+      return [];
     }
   }
 }

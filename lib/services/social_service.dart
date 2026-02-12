@@ -6,6 +6,64 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class SocialService {
   final SupabaseClient _supabase = Supabase.instance.client;
 
+  Future<Map<String, dynamic>> getProfileWallLikes(String profileUserId) async {
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) return {'likes_count': 0, 'is_liked': false};
+
+    try {
+      final profileResponse = await _supabase
+          .from('user_profile')
+          .select('mural_likes_count')
+          .eq('user_id', profileUserId)
+          .maybeSingle();
+
+      final likesCount = (profileResponse?['mural_likes_count'] as int?) ?? 0;
+
+      final likedResponse = await _supabase
+          .from('profile_wall_likes')
+          .select('id')
+          .eq('profile_user_id', profileUserId)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      return {
+        'likes_count': likesCount,
+        'is_liked': likedResponse != null,
+      };
+    } catch (e) {
+      print('❌ Erro ao carregar likes do mural: $e');
+      return {'likes_count': 0, 'is_liked': false};
+    }
+  }
+
+  Future<void> toggleProfileWallLike(String profileUserId, bool isLiked) async {
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) return;
+
+    try {
+      if (isLiked) {
+        await _supabase
+            .from('profile_wall_likes')
+            .delete()
+            .eq('profile_user_id', profileUserId)
+            .eq('user_id', userId);
+      } else {
+        await _supabase.from('profile_wall_likes').insert({
+          'profile_user_id': profileUserId,
+          'user_id': userId,
+          'created_at': DateTime.now().toIso8601String(),
+        });
+      }
+
+      await _supabase.rpc('update_profile_wall_likes_count', params: {
+        'profile_user_id_param': profileUserId,
+      });
+    } catch (e) {
+      print('❌ Erro ao curtir/descurtir mural: $e');
+      rethrow;
+    }
+  }
+
   // Carregar feed de posts
 Future<List<Map<String, dynamic>>> getFeedPosts() async {
   final userId = _supabase.auth.currentUser?.id;
