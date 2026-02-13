@@ -1930,12 +1930,15 @@ Future<void> syncBinders() async {
     required int position,
     required String photocardInstanceId,
     required String photocardImagePath,
+    bool removeFromCurrentLocation = true, // Novo parâmetro
   }) async {
     if (_currentUserId == null) return;
 
     try {
-      // Primeiro, remove o photocard da localização atual
-      await _removePhotocardFromCurrentLocation(photocardInstanceId);
+      // Remove o photocard da localização atual apenas se solicitado
+      if (removeFromCurrentLocation) {
+        await _removePhotocardFromCurrentLocation(photocardInstanceId);
+      }
 
       // Depois, coloca no mural
       await _supabaseClient
@@ -1968,9 +1971,16 @@ Future<void> syncBinders() async {
     try {
       // Primeiro, obtém o photocard na posição
       final wallSlots = await getProfileWall();
-      final slot = wallSlots.firstWhere((s) => s.position == position);
+      ProfileWallSlot? slot;
       
-      if (!slot.isEmpty) {
+      try {
+        slot = wallSlots.firstWhere((s) => s.position == position);
+      } catch (e) {
+        // Não encontrou slot na posição
+        slot = null;
+      }
+      
+      if (slot != null && !slot.isEmpty) {
         // Move o photocard de volta para a mochila
         await _supabaseClient
             .from('inventory')

@@ -166,32 +166,38 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   void _showPhotocardSelector(int position) {
+    final mainContext = context; // Salva referência ao contexto principal
     showDialog(
       context: context,
-      builder: (context) => PhotocardSelectorDialog(
+      builder: (dialogContext) => PhotocardSelectorDialog(
         dataStorageService: widget.dataStorageService,
         onPhotocardSelected: (instanceId, imagePath) async {
           try {
+            // Primeiro, remove o photocard atual da posição e move para a mochila
+            await widget.dataStorageService.removePhotocardFromWall(position);
+            
+            // Depois, coloca o novo photocard na posição
             await widget.dataStorageService.placePhotocardOnWall(
               position: position,
               photocardInstanceId: instanceId,
               photocardImagePath: imagePath,
+              removeFromCurrentLocation: false, // Não remove, já foi removido manualmente
             );
             await _loadProfileWall(); // Recarrega o mural
             
             if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
+              ScaffoldMessenger.of(mainContext).showSnackBar(
                 const SnackBar(
-                  content: Text('Photocard colocado no mural com sucesso!'),
+                  content: Text('Photocard trocado com sucesso!'),
                   backgroundColor: Colors.green,
                 ),
               );
             }
           } catch (e) {
             if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
+              ScaffoldMessenger.of(mainContext).showSnackBar(
                 SnackBar(
-                  content: Text('Erro ao colocar photocard no mural: $e'),
+                  content: Text('Erro ao trocar photocard: $e'),
                   backgroundColor: Colors.red,
                 ),
               );
