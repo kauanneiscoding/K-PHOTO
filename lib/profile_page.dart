@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
+import 'dart:ui';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'currency_service.dart';
 import 'data_storage_service.dart';
@@ -42,6 +43,11 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _isTogglingMuralLike = false;
   int _muralLikesCount = 0;
   bool _isMuralLiked = false;
+  
+  // Variáveis para fundo de perfil
+  String? _profileBackgroundUrl;
+  bool _profileBackgroundBlur = false;
+  double _profileBackgroundOpacity = 0.2;
 
   @override
   void initState() {
@@ -122,16 +128,11 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _loadUserProfile() async {
-    final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null) return;
+    final profileUserId = Supabase.instance.client.auth.currentUser?.id;
+    if (profileUserId == null) return;
 
     try {
-      final response = await Supabase.instance.client
-          .from('user_profile')
-          .select('username, display_name, avatar_url, selected_frame')
-          .eq('user_id', userId)
-          .maybeSingle();
-
+      final response = await _supabaseService.getUserProfile(profileUserId);
       debugPrint('🔁 Perfil recarregado: $response');
 
       if (response != null && mounted) {
@@ -140,6 +141,9 @@ class _ProfilePageState extends State<ProfilePage> {
           _displayName = response['display_name'];
           profileImagePath = response['avatar_url'];
           selectedFrame = response['selected_frame'] ?? 'assets/frame_none.png';
+          _profileBackgroundUrl = response['profile_background_url'];
+          _profileBackgroundBlur = response['profile_background_blur'] ?? false;
+          _profileBackgroundOpacity = (response['profile_background_opacity'] as num?)?.toDouble() ?? 0.2;
         });
       }
     } catch (e) {
@@ -786,33 +790,63 @@ Future<void> _pickImage() async {
 
   @override
   Widget build(BuildContext context) {
+    final screenHeight = MediaQuery.of(context).size.height;
+    final screenBottom = MediaQuery.of(context).padding.bottom;
+    
     return Scaffold(
-      body: SafeArea(
-        child: Stack(
-          children: [
-            SingleChildScrollView(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-            children: [
-              const SizedBox(height: 20),
-              _buildProfilePicture(),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      extendBodyBehindAppBar: true,
+      extendBody: true,
+      body: Stack(
+        children: [
+          // Fundo de perfil (se existir) - cobrindo absolutamente tudo
+          if (_profileBackgroundUrl != null)
+            Positioned.fill(
+              child: Container(
                 decoration: BoxDecoration(
-                  color: Colors.pink[50],
-                  borderRadius: BorderRadius.circular(20),
+                  image: DecorationImage(
+                    image: NetworkImage(_profileBackgroundUrl!),
+                    fit: BoxFit.cover,
+                  ),
                 ),
-                child: Text(
-                  (_displayName?.isNotEmpty ?? false) ? _displayName! : (_username != null ? _username! : 'Carregando...'),
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontFamily: 'Nunito',
-                    fontWeight: FontWeight.w700,
-                    color: Colors.pink[700],
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 1.5, sigmaY: 1.5),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(_profileBackgroundOpacity),
+                    ),
                   ),
                 ),
               ),
+            ),
+          // Conteúdo principal - sem SafeArea para grudar na barra
+          Padding(
+            padding: EdgeInsets.only(
+              top: MediaQuery.of(context).padding.top + 45, // Apenas padding da status bar
+              left: 16,
+              right: 16,
+              bottom: 16,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  const SizedBox(height: 20),
+                  _buildProfilePicture(),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.pink[50],
+                    ),
+                    child: Text(
+                      (_displayName?.isNotEmpty ?? false) ? _displayName! : (_username != null ? _username! : 'Carregando...'),
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontFamily: 'Nunito',
+                        fontWeight: FontWeight.w700,
+                        color: Colors.pink[700],
+                      ),
+                    ),
+                  ),
               const SizedBox(height: 4),
               Text(
                 _username != null ? '@$_username' : 'Carregando...',
@@ -1091,21 +1125,10 @@ Future<void> _pickImage() async {
             ],
           ),
         ),
-        Positioned(
-          top: 10,
-          right: 10,
-          child: IconButton(
-            icon: const Icon(
-              Icons.logout_rounded,
-              color: Colors.pink,
-            ),
-            onPressed: _handleLogout,
-          ),
-        ),
-      ],
+      ),
+    ],
     ),
-  ),
-);
+  );
   }
 }
 

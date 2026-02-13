@@ -907,6 +907,22 @@ class SupabaseService {
         .eq('user_id', userId);
   }
 
+  /// Buscar perfil do usuário
+  Future<Map<String, dynamic>?> getUserProfile(String userId) async {
+    try {
+      final response = await _client
+          .from('user_profile')
+          .select('user_id, username, display_name, avatar_url, selected_frame, profile_background_url, profile_background_blur, profile_background_opacity')
+          .eq('user_id', userId)
+          .maybeSingle();
+      
+      return response;
+    } catch (e) {
+      debugPrint('❌ Erro ao buscar perfil do usuário: $e');
+      return null;
+    }
+  }
+
   /// Buscar detalhes dos amigos
   Future<List<Map<String, dynamic>>> getFriendsDetails() async {
   final userId = _client.auth.currentUser?.id;

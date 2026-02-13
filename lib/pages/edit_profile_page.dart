@@ -1,8 +1,10 @@
 import 'dart:io';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart'; // Para CustomClipper
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 class EditProfilePage extends StatefulWidget {
   final String? currentDisplayName;
@@ -30,6 +32,11 @@ class _EditProfilePageState extends State<EditProfilePage> {
   String _selectedFrame = 'assets/frame_none.png';
   List<String> _availableFrames = [];
   final TextEditingController _usernameController = TextEditingController();
+  
+  // Variáveis para fundo de perfil
+  String? _profileBackgroundUrl;
+  bool _profileBackgroundBlur = false;
+  double _profileBackgroundOpacity = 0.2;
 
   @override
   void initState() {
@@ -50,7 +57,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
     final response = await _supabase
         .from('user_profile')
-        .select('display_name, avatar_url, selected_frame')
+        .select('display_name, avatar_url, selected_frame, profile_background_url, profile_background_blur, profile_background_opacity')
         .eq('user_id', userId)
         .maybeSingle();
 
@@ -59,6 +66,9 @@ class _EditProfilePageState extends State<EditProfilePage> {
         _displayNameController.text = response['display_name'] ?? '';
         _avatarUrl = response['avatar_url'];
         _selectedFrame = response['selected_frame'] ?? 'assets/frame_none.png';
+        _profileBackgroundUrl = response['profile_background_url'];
+        _profileBackgroundBlur = response['profile_background_blur'] ?? false;
+        _profileBackgroundOpacity = (response['profile_background_opacity'] as num?)?.toDouble() ?? 0.2;
       });
     }
   }
@@ -184,6 +194,9 @@ Future<void> _pickAvatar() async {
       'username': _usernameController.text.trim(),
       'avatar_url': _avatarUrl,
       'selected_frame': _selectedFrame,
+      'profile_background_url': _profileBackgroundUrl,
+      'profile_background_blur': _profileBackgroundBlur,
+      'profile_background_opacity': _profileBackgroundOpacity,
     };
 
     try {
@@ -304,151 +317,377 @@ Future<void> _pickAvatar() async {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: Stack(
-          children: [
-            SingleChildScrollView(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  const SizedBox(height: 20),
-                  _buildProfilePicture(),
-                  const SizedBox(height: 20),
-                  const SizedBox(height: 20),
-                  // Campo de Nome de Exibição
-                  TextField(
-                    controller: _displayNameController,
-                    decoration: InputDecoration(
-                      labelText: 'Nome de Exibição',
-                      labelStyle: TextStyle(color: Colors.pink[700]),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(15),
-                        borderSide: BorderSide(color: Colors.pink[300]!),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(15),
-                        borderSide: BorderSide(color: Colors.pink[400]!, width: 2),
-                      ),
-                      filled: true,
-                      fillColor: Colors.pink[50],
+    final screenHeight = MediaQuery.of(context).size.height;
+    final screenBottom = MediaQuery.of(context).padding.bottom;
+    
+    // Build children list dynamically to avoid conditional syntax issues
+    List<Widget> stackChildren = [];
+    
+    // Add background if exists - cobrindo absolutamente tudo
+    if (_profileBackgroundUrl != null) {
+      stackChildren.add(
+        Positioned(
+          left: 0,
+          right: 0,
+          top: 0,
+          height: screenHeight + screenBottom, // Altura total incluindo área da barra
+          child: Container(
+            decoration: BoxDecoration(
+              image: DecorationImage(
+                image: NetworkImage(_profileBackgroundUrl!),
+                fit: BoxFit.cover,
+              ),
+            ),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 1.5, sigmaY: 1.5),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(_profileBackgroundOpacity),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    
+    // Add main content
+    stackChildren.add(
+      Positioned(
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              children: [
+                const SizedBox(height: 20),
+                _buildProfilePicture(),
+                const SizedBox(height: 20),
+                const SizedBox(height: 20),
+                // Campo de Nome de Exibição
+                TextField(
+                  controller: _displayNameController,
+                  decoration: InputDecoration(
+                    labelText: 'Nome de Exibição',
+                    labelStyle: TextStyle(color: Colors.pink[700]),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: BorderSide(color: Colors.pink[300]!),
                     ),
-                    style: TextStyle(color: Colors.pink[900]),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: BorderSide(color: Colors.pink[400]!, width: 2),
+                    ),
+                    filled: true,
+                    fillColor: Colors.pink[50],
                   ),
-                  const SizedBox(height: 20),
-                  // Seção de Molduras
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.pink[50]!.withOpacity(0.9),
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.pink.withOpacity(0.1),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Escolha uma moldura:',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.pink[700],
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 12,
-                          runSpacing: 12,
-                          children: _availableFrames.map((framePath) {
-                            return GestureDetector(
-                              onTap: () => _selectFrame(framePath),
-                              child: Container(
-                                padding: const EdgeInsets.all(4),
-                                decoration: BoxDecoration(
-                                  border: Border.all(
-                                    color: _selectedFrame == framePath 
-                                        ? Colors.pink[400]! 
-                                        : Colors.transparent,
-                                    width: 2,
-                                  ),
-                                  borderRadius: BorderRadius.circular(12),
-                                  color: Colors.white,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.pink.withOpacity(0.1),
-                                      blurRadius: 4,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ],
-                                ),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Image.asset(
-                                    framePath,
-                                    width: 60,
-                                    height: 60,
-                                    fit: BoxFit.cover,
-                                  ),
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 30),
-                  // Botão Salvar
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _saveChanges,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.pink[300],
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                        elevation: 3,
+                  style: TextStyle(color: Colors.pink[900]),
+                ),
+                const SizedBox(height: 20),
+                // Seção de Molduras
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.pink[50]!.withOpacity(0.9),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.pink.withOpacity(0.1),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
                       ),
-                      child: const Text(
-                        'Salvar Alterações',
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Escolha uma moldura:',
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
+                          color: Colors.pink[700],
                         ),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: _availableFrames.map((framePath) {
+                          return GestureDetector(
+                            onTap: () => _selectFrame(framePath),
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                border: Border.all(
+                                  color: _selectedFrame == framePath 
+                                      ? Colors.pink[400]! 
+                                      : Colors.transparent,
+                                  width: 2,
+                                ),
+                                borderRadius: BorderRadius.circular(12),
+                                color: Colors.white,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.pink.withOpacity(0.1),
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: Image.asset(
+                                  framePath,
+                                  width: 60,
+                                  height: 60,
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 30),
+                // Botão Salvar
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _saveChanges,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.pink[300],
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                      elevation: 3,
+                    ),
+                    child: const Text(
+                      'Salvar Alterações',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
-                  const SizedBox(height: 20),
-                ],
-              ),
-            ),
-            // Botão de voltar
-            Positioned(
-              top: 10,
-              left: 10,
-              child: IconButton(
-                icon: const Icon(
-                  Icons.arrow_back_rounded,
-                  color: Colors.pink,
-                  size: 30,
                 ),
-                onPressed: () => Navigator.pop(context),
-              ),
+                const SizedBox(height: 20),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
+    
+    // Add back button
+    stackChildren.add(
+      Positioned(
+        top: 60,
+        left: 10,
+        child: IconButton(
+          icon: const Icon(
+            Icons.arrow_back_rounded,
+            color: Colors.pink,
+            size: 30,
+          ),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+    );
+
+    // Add background upload button (no final para ficar por cima)
+    stackChildren.add(
+      Positioned(
+        top: 60,
+        right: 10,
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.9),
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: IconButton(
+            icon: Icon(
+              Icons.wallpaper,
+              color: Colors.pink[600],
+              size: 24,
+            ),
+            onPressed: _uploadProfileBackground,
+            tooltip: 'Alterar fundo do perfil',
+          ),
+        ),
+      ),
+    );
+
+    return Scaffold(
+      extendBodyBehindAppBar: true,
+      extendBody: true,
+      body: Stack(
+        children: stackChildren,
+      ),
+    );
+  }
+  
+  Future<void> _uploadProfileBackground() async {
+    // Teste imediato para verificar se o clique funciona
+    debugPrint('🔘 BOTÃO CLICADO!');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Botão clicado! Abrindo galeria...'),
+          backgroundColor: Colors.purple,
+          duration: Duration(seconds: 1),
+        ),
+      );
+    }
+    
+    try {
+      debugPrint('🖼️ Iniciando upload de fundo de perfil...');
+      
+      // Teste simples: abrir a galeria primeiro
+      final ImagePicker picker = ImagePicker();
+      final XFile? image = await picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1920,
+        maxHeight: 1080,
+        imageQuality: 85,
+      );
+
+      if (image == null) {
+        debugPrint('❌ Nenhuma imagem selecionada');
+        return;
+      }
+
+      debugPrint('✅ Imagem selecionada: ${image.path}');
+      
+      // Mostrar mensagem imediata para confirmar que o botão funciona
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Imagem selecionada! Processando upload...'),
+            backgroundColor: Colors.blue,
+          ),
+        );
+      }
+      
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) {
+        debugPrint('❌ Usuário não autenticado');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Usuário não autenticado'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      debugPrint('👤 Usuário ID: $userId');
+
+      // Tentar upload com tratamento de erro detalhado
+      try {
+        final fileBytes = await image.readAsBytes();
+        
+        // Gerar nome único como no avatar
+        final fileExtension = image.path.split('.').last;
+        final fileName = '${DateTime.now().millisecondsSinceEpoch}.$fileExtension';
+        final fullPath = '$userId/$fileName';
+        
+        debugPrint('📤 Fazendo upload para: $fullPath');
+        debugPrint('📊 Tamanho do arquivo: ${fileBytes.length} bytes');
+        
+        final storageResponse = await _supabase.storage
+            .from('profile-backgrounds')
+            .uploadBinary(
+              fullPath, 
+              fileBytes,
+              fileOptions: supabase.FileOptions(upsert: true),
+            );
+
+        debugPrint('📦 Resposta do storage: $storageResponse');
+
+        if (storageResponse != null) {
+          final publicUrl = _supabase.storage
+              .from('profile-backgrounds')
+              .getPublicUrl(fullPath) + '?t=${DateTime.now().millisecondsSinceEpoch}';
+
+          debugPrint('🔗 URL pública: $publicUrl');
+
+          // Remover fundo anterior (se houver)
+          if (_profileBackgroundUrl != null) {
+            try {
+              final oldPath = Uri.decodeFull(Uri.parse(_profileBackgroundUrl!).pathSegments
+                  .skipWhile((s) => s != 'profile-backgrounds')
+                  .skip(1)
+                  .join('/'));
+              await _supabase.storage.from('profile-backgrounds').remove([oldPath]);
+              debugPrint('🗑️ Fundo antigo removido: $oldPath');
+            } catch (e) {
+              debugPrint('❌ Erro ao remover fundo antigo: $e');
+            }
+          }
+
+          setState(() {
+            _profileBackgroundUrl = publicUrl;
+          });
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Fundo de perfil atualizado com sucesso!'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
+        } else {
+          debugPrint('❌ Falha no upload - resposta nula');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Falha ao fazer upload - verifique as permissões do bucket'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+        }
+      } catch (storageError) {
+        debugPrint('❌ Erro específico do storage: $storageError');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Erro no storage: $storageError'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Erro geral ao fazer upload do fundo: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao fazer upload do fundo: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 }
 
