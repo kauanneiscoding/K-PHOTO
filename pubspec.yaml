@@ -79,6 +79,8 @@ flutter:
     - assets/frame/frame_2.png
     - assets/frame/frame_3.png
     - assets/frame/frame_4.png
+    - assets/frame/frame_5.png
+    - assets/frame/frame_6.png
     - assets/kcoin.png     # Adicione esta linha
     - assets/starcoin.png
 

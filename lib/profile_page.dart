@@ -8,6 +8,7 @@ import 'package:k_photo/services/supabase_service.dart';
 import 'package:k_photo/services/social_service.dart';
 import 'package:k_photo/login_page.dart';
 import 'package:k_photo/pages/edit_profile_page.dart';
+import 'package:k_photo/services/frame_service.dart';
 import 'package:k_photo/widgets/photocard_selector_dialog.dart';
 import 'package:k_photo/models/profile_wall.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -45,6 +46,11 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   void initState() {
     super.initState();
+    // Inicializa o FrameService com o ID do usuário atual
+    final userId = widget.dataStorageService.getCurrentUserId();
+    if (userId != null) {
+      FrameService.setCurrentUserId(userId);
+    }
     _loadUsername();
     _loadSelectedFrame();
     _loadPurchasedFrames();
@@ -360,7 +366,7 @@ class _ProfilePageState extends State<ProfilePage> {
     });
 
     try {
-      final purchasedFrames = await widget.dataStorageService.getPurchasedFrames();
+      final purchasedFrames = await FrameService.getPurchasedFrames();
       setState(() {
         frames = ['assets/frame_none.png', ...purchasedFrames];
       });
@@ -523,7 +529,7 @@ Future<void> _pickImage() async {
       context: context,
       builder: (BuildContext context) {
         return FutureBuilder<List<String>>(
-          future: widget.dataStorageService.getPurchasedFrames(),
+          future: FrameService.getPurchasedFrames(),
           builder: (context, snapshot) {
             if (!snapshot.hasData) {
               return Center(child: CircularProgressIndicator());

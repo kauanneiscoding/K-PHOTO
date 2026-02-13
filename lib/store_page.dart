@@ -5,6 +5,7 @@ import 'widgets/animated_photocard.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'currency_service.dart';
 import 'main.dart';
+import 'services/frame_service.dart';
 
 class StorePage extends StatefulWidget {
   final DataStorageService dataStorageService;
@@ -23,7 +24,12 @@ class _StorePageState extends State<StorePage> {
   @override
   void initState() {
     super.initState();
-    _framesFuture = widget.dataStorageService.getPurchasedFrames();
+    // Inicializa o FrameService com o ID do usuário atual
+    final userId = widget.dataStorageService.getCurrentUserId();
+    if (userId != null) {
+      FrameService.setCurrentUserId(userId);
+    }
+    _framesFuture = FrameService.getPurchasedFrames();
   }
 
   @override
@@ -112,10 +118,10 @@ class _StorePageState extends State<StorePage> {
                                 crossAxisSpacing: 16,
                                 mainAxisSpacing: 16,
                               ),
-                              itemCount: 4,
+                              itemCount: 6,
                               itemBuilder: (context, index) {
                                 return FutureBuilder<bool>(
-                                  future: widget.dataStorageService
+                                  future: FrameService
                                       .isFramePurchased(
                                           'assets/frame/frame_${index + 1}.png'),
                                   builder: (context, snapshot) {
@@ -189,9 +195,8 @@ class _StorePageState extends State<StorePage> {
                                                                   .spendKCoins(100 *
                                                                       (index +
                                                                           1));
-                                                              await widget
-                                                                  .dataStorageService
-                                                                  .addPurchasedFrame(
+                                                              await FrameService
+                                                                  .purchaseFrame(
                                                                       'assets/frame/frame_${index + 1}.png');
 
                                                               // Fecha o diálogo de confirmação
@@ -202,9 +207,7 @@ class _StorePageState extends State<StorePage> {
                                                               if (mounted) {
                                                                 setState(() {
                                                                   // Atualiza o Future para recarregar o estado das molduras
-                                                                  _framesFuture = widget
-                                                                      .dataStorageService
-                                                                      .getPurchasedFrames();
+                                                                  _framesFuture = FrameService.getPurchasedFrames();
                                                                 });
                                                               }
 
@@ -300,8 +303,9 @@ class _StorePageState extends State<StorePage> {
   void _showMysteryBoxDialog(BuildContext context) {
     showDialog(
       context: context,
-      builder: (context) => MysteryBoxDialog(
+      builder: (dialogContext) => MysteryBoxDialog(
         dataStorageService: widget.dataStorageService,
+        storePageContext: context,  // Passa o contexto da StorePage, não do diálogo
       ),
     );
   }
@@ -444,10 +448,12 @@ class StoreItem extends StatelessWidget {
 // Altere a classe MysteryBoxDialog para ser StatefulWidget
 class MysteryBoxDialog extends StatefulWidget {
   final DataStorageService dataStorageService;
+  final BuildContext? storePageContext;
 
   const MysteryBoxDialog({
     Key? key,
     required this.dataStorageService,
+    this.storePageContext,
   }) : super(key: key);
 
   @override
@@ -511,8 +517,12 @@ class _MysteryBoxDialogState extends State<MysteryBoxDialog> {
         ),
         ElevatedButton(
           onPressed: () {
+            print('MysteryBoxDialog: Botão Abrir pressionado');
             Navigator.pop(context);
-            _openMysteryBox(context);
+            // Chama o método sem await - o contexto ainda é válido neste momento
+            if (widget.storePageContext != null) {
+              _openMysteryBox(widget.storePageContext!);
+            }
           },
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.pink[300],
@@ -548,66 +558,81 @@ class _MysteryBoxDialogState extends State<MysteryBoxDialog> {
   }
 
   Future<void> _openMysteryBox(BuildContext context) async {
-    try {
-      final currentKCoins = await CurrencyService.getKCoins();
-      if (currentKCoins < 300) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content:
-                  Text('K-coins insuficientes! Você precisa de 300 K-coins.'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-        return;
-      }
-
-      await CurrencyService.spendKCoins(300);
-
-      // Sorteia 3 photocards
-      List<String> newPhotocards = [];
-      Random random = Random();
-      List<String> addedToMount = [];
-      List<String> addedToBackpack = [];
-
-      for (int i = 0; i < 3; i++) {
-        int cardNumber = random.nextInt(102) + 1;
-        String cardPath = _getPhotocardPath(cardNumber);
-        newPhotocards.add(cardPath);
-
-        bool addedToSharedPile =
-            await widget.dataStorageService.addToSharedPile(cardPath);
-        if (addedToSharedPile) {
-          addedToMount.add(cardPath);
-        } else {
-          addedToBackpack.add(cardPath);
-        }
-      }
-
-      // Mostra o diálogo de revelação
-      if (mounted) {
-        await showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => RevealDialog(
-            photocards: newPhotocards,
-            dataStorageService: widget.dataStorageService,
-          ),
-        );
-      }
-    } catch (e) {
-      print('Erro ao abrir caixa misteriosa: $e');
+  print('MysteryBoxDialog: _openMysteryBox chamado');
+  try {
+    final currentKCoins = await CurrencyService.getKCoins();
+    if (currentKCoins < 300) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Erro ao abrir a caixa misteriosa'),
+            content: Text('K-coins insuficientes! Você precisa de 300 K-coins.'),
             backgroundColor: Colors.red,
           ),
         );
       }
+      return;
+    }
+
+    await CurrencyService.spendKCoins(300);
+
+    // Sorteia 3 photocards
+    List<String> newPhotocards = [];
+    Random random = Random();
+    List<String> addedToMount = [];
+    List<String> addedToBackpack = [];
+
+    for (int i = 0; i < 3; i++) {
+      print('StorePage: Processando card $i');
+      int cardNumber = random.nextInt(102) + 1;
+      String cardPath = _getPhotocardPath(cardNumber);
+      newPhotocards.add(cardPath);
+      print('StorePage: Card $i gerado: $cardPath');
+
+      bool addedToSharedPile =
+          await widget.dataStorageService.addToSharedPile(cardPath);
+      print('StorePage: Card $i adicionado ao shared pile: $addedToSharedPile');
+      if (addedToSharedPile) {
+        addedToMount.add(cardPath);
+      } else {
+        addedToBackpack.add(cardPath);
+      }
+    }
+
+    print('StorePage: Loop concluído. Total cards: ${newPhotocards.length}');
+    print('StorePage: Mostrando diálogo de revelação (sem verificar mounted)...');
+
+    // Mostra o diálogo de revelação - o contexto da StorePage ainda é válido
+    print('StorePage: Photocards para revelar: ${newPhotocards.length}');
+    print('StorePage: Tentando mostrar showDialog...');
+    
+    try {
+      await showDialog(
+        context: context,  // Usa o contexto passado como parâmetro
+        barrierDismissible: true,  // Permite fechar clicando fora
+        builder: (dialogContext) {
+          print('StorePage: Criando RevealDialog...');
+          return RevealDialog(
+            photocards: newPhotocards,
+            dataStorageService: widget.dataStorageService,
+          );
+        },
+      );
+      print('StorePage: showDialog concluído');
+    } catch (e) {
+      print('StorePage: Erro no showDialog: $e');
+    }
+  } catch (e) {
+    print('Erro ao abrir caixa misteriosa: $e');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erro ao abrir a caixa misteriosa'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
+}
 
   String _getPhotocardPath(int cardNumber) {
     if (cardNumber >= 1 && cardNumber <= 102) {
@@ -637,14 +662,37 @@ class _RevealDialogState extends State<RevealDialog> {
   final Set<String> _revealedCards = {};
   bool _showCloseButton = true;
 
+  @override
+  void initState() {
+    super.initState();
+    print('RevealDialog: initState chamado com ${widget.photocards.length} cards');
+  }
+
   void _onCardRevealed(String photocard) {
+    print('RevealDialog: Card revelado: $photocard');
     setState(() {
       _revealedCards.add(photocard);
     });
+    
+    // Mostra mensagem de sucesso quando todos os cards forem revelados
+    if (_revealedCards.length == widget.photocards.length) {
+      Future.delayed(const Duration(milliseconds: 1000), () {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Parabéns! Você ganhou ${widget.photocards.length} photocards!'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    print('RevealDialog: build chamado');
     final screenWidth = MediaQuery.of(context).size.width;
     final dialogWidth = screenWidth * 0.9;
     final availableWidth = dialogWidth - 48; // Espaço para padding e margens
@@ -668,7 +716,7 @@ class _RevealDialogState extends State<RevealDialog> {
               children: [
                 Center(
                   child: Text(
-                    'Toque nas cartas para revelar!',
+                    'Revelando seus photocards!',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -692,6 +740,7 @@ class _RevealDialogState extends State<RevealDialog> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: widget.photocards.map((photocard) {
+                print('RevealDialog: Criando AnimatedPhotocard para $photocard');
                 return SizedBox(
                   width: cardWidth,
                   height: cardHeight,
