@@ -175,6 +175,7 @@ class _ProfilePageState extends State<ProfilePage> {
       context: context,
       builder: (dialogContext) => PhotocardSelectorDialog(
         dataStorageService: widget.dataStorageService,
+        currentWallSlots: _profileWallSlots, // Passa os slots atuais
         onPhotocardSelected: (instanceId, imagePath) async {
           try {
             // Primeiro, remove o photocard atual da posição e move para a mochila
@@ -821,7 +822,7 @@ Future<void> _pickImage() async {
           // Conteúdo principal - sem SafeArea para grudar na barra
           Padding(
             padding: EdgeInsets.only(
-              top: MediaQuery.of(context).padding.top + 45, // Apenas padding da status bar
+              top: MediaQuery.of(context).padding.top + 80, // Apenas padding da status bar
               left: 16,
               right: 16,
               bottom: 16,
@@ -854,14 +855,6 @@ Future<void> _pickImage() async {
                   fontSize: 16,
                   color: Colors.grey[700],
                   fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Desc',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey[800],
                 ),
               ),
               const SizedBox(height: 16),
@@ -997,111 +990,85 @@ Future<void> _pickImage() async {
                                 orElse: () => ProfileWallSlot(position: index),
                               );
                               
-                              return GestureDetector(
-                                onTap: () {
-                                  if (slot.isEmpty) {
-                                    _showPhotocardSelector(index);
-                                  } else {
-                                    _showPhotocardOptions(index, slot);
-                                  }
-                                },
-                                child: Container(
-                                  height: double.infinity, // Garante proporção correta
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(12),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.pink.withOpacity(0.15),
-                                        blurRadius: 8,
-                                        offset: const Offset(0, 4),
-                                      ),
-                                    ],
-                                  ),
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(12),
-                                    child: AspectRatio(
-                                      aspectRatio: 2/3, // Proporção padrão de photocard
-                                      child: Stack(
-                                        children: [
-                                          if (slot.isEmpty)
-                                            Container(
-                                              color: Colors.grey[50],
-                                              child: Center(
-                                                child: Column(
-                                                  mainAxisAlignment: MainAxisAlignment.center,
-                                                  children: [
-                                                    Icon(
-                                                      Icons.add_circle_outline,
-                                                      color: Colors.pink[300],
-                                                      size: 36,
-                                                    ),
-                                                    const SizedBox(height: 8),
-                                                    Text(
-                                                      'Adicionar',
-                                                      style: TextStyle(
-                                                        color: Colors.pink[600],
-                                                        fontSize: 14,
-                                                        fontWeight: FontWeight.w500,
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                            )
-                                          else
-                                            slot.photocardImagePath!.startsWith('http')
-                                                ? Image.network(
-                                                    slot.photocardImagePath!,
-                                                    fit: BoxFit.cover,
-                                                    width: double.infinity,
-                                                    height: double.infinity,
-                                                    errorBuilder: (context, error, stackTrace) {
-                                                      return Container(
-                                                        color: Colors.grey[200],
-                                                        child: Icon(
-                                                          Icons.broken_image,
-                                                          color: Colors.grey[400],
-                                                          size: 40,
-                                                        ),
-                                                      );
-                                                    },
-                                                  )
-                                                : Image.asset(
-                                                    slot.photocardImagePath!,
-                                                    fit: BoxFit.cover,
-                                                    width: double.infinity,
-                                                    height: double.infinity,
-                                                    errorBuilder: (context, error, stackTrace) {
-                                                      return Container(
-                                                        color: Colors.grey[200],
-                                                        child: Icon(
-                                                          Icons.broken_image,
-                                                          color: Colors.grey[400],
-                                                          size: 40,
-                                                        ),
-                                                      );
-                                                    },
+                              return Container(
+                                height: double.infinity, // Garante proporção correta
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(12),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.pink.withOpacity(0.15),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: AspectRatio(
+                                    aspectRatio: 2/3, // Proporção padrão de photocard
+                                    child: Stack(
+                                      children: [
+                                        if (slot.isEmpty)
+                                          Container(
+                                            color: Colors.grey[50],
+                                            child: Center(
+                                              child: Column(
+                                                mainAxisAlignment: MainAxisAlignment.center,
+                                                children: [
+                                                  Icon(
+                                                    Icons.photo_album_outlined,
+                                                    color: Colors.pink[300],
+                                                    size: 36,
                                                   ),
-                                          if (!slot.isEmpty)
-                                            Positioned(
-                                              top: 6,
-                                              right: 6,
-                                              child: Container(
-                                                padding: const EdgeInsets.all(3),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.black.withOpacity(0.7),
-                                                  shape: BoxShape.circle,
-                                                ),
-                                                child: Icon(
-                                                  Icons.more_vert,
-                                                  color: Colors.white,
-                                                  size: 18,
-                                                ),
+                                                  const SizedBox(height: 8),
+                                                  Text(
+                                                    'Vazio',
+                                                    style: TextStyle(
+                                                      color: Colors.pink[600],
+                                                      fontSize: 14,
+                                                      fontWeight: FontWeight.w500,
+                                                    ),
+                                                  ),
+                                                ],
                                               ),
                                             ),
-                                        ],
-                                      ),
+                                          )
+                                        else
+                                          slot.photocardImagePath!.startsWith('http')
+                                              ? Image.network(
+                                                  slot.photocardImagePath!,
+                                                  fit: BoxFit.cover,
+                                                  width: double.infinity,
+                                                  height: double.infinity,
+                                                  errorBuilder: (context, error, stackTrace) {
+                                                    return Container(
+                                                      color: Colors.grey[200],
+                                                      child: Icon(
+                                                        Icons.broken_image,
+                                                        color: Colors.grey[400],
+                                                        size: 40,
+                                                      ),
+                                                    );
+                                                  },
+                                                )
+                                              : Image.asset(
+                                                  slot.photocardImagePath!,
+                                                  fit: BoxFit.cover,
+                                                  width: double.infinity,
+                                                  height: double.infinity,
+                                                  errorBuilder: (context, error, stackTrace) {
+                                                    return Container(
+                                                      color: Colors.grey[200],
+                                                      child: Icon(
+                                                        Icons.broken_image,
+                                                        color: Colors.grey[400],
+                                                        size: 40,
+                                                      ),
+                                                    );
+                                                  },
+                                                ),
+                                      ],
                                     ),
                                   ),
                                 ),
@@ -1111,7 +1078,7 @@ Future<void> _pickImage() async {
                     const SizedBox(height: 16),
                     Center(
                       child: Text(
-                        "✧.*I'm Just a girl*.✧",
+                        "✧.*Mural do perfil*.✧",
                         style: TextStyle(
                           fontSize: 16,
                           color: Colors.pink[700],

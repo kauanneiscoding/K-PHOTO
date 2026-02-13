@@ -775,17 +775,25 @@ class DataStorageService {
   }) async {
     if (_currentUserId == null || instanceId.isEmpty) return;
 
-    await _supabaseClient
-        .from('inventory')
-        .update({
-          'location': newLocation,
-          'binder_id': binderId,
-          'slot_index': slotIndex,
-          'page_number': pageNumber,
-          'updated_at': DateTime.now().toIso8601String(),
-        })
-        .eq('instance_id', instanceId)
-        .eq('user_id', _currentUserId);
+    try {
+      debugPrint('🔄 Atualizando localização do photocard $instanceId: $newLocation');
+      
+      final updateResult = await _supabaseClient
+          .from('inventory')
+          .update({
+            'location': newLocation,
+            'binder_id': binderId,
+            'slot_index': slotIndex,
+            'page_number': pageNumber,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('instance_id', instanceId)
+          .eq('user_id', _currentUserId!);
+
+      debugPrint('✅ Photocard $instanceId atualizado para $newLocation. Resultado: ${updateResult}');
+    } catch (e) {
+      debugPrint('❌ Erro ao atualizar localização do photocard: $e');
+    }
   }
 
   Future<void> printInventoryContent() async {
@@ -1952,13 +1960,14 @@ Future<void> syncBinders() async {
           }, onConflict: 'user_id,position');
 
       // Atualiza a tabela inventory para refletir a nova localização
-      await _supabaseClient
+      final updateResult = await _supabaseClient
           .from('inventory')
           .update({'location': 'profile_wall'})
           .eq('instance_id', photocardInstanceId)
           .eq('user_id', _currentUserId!);
 
-      debugPrint('✅ Photocard colocado no mural do perfil na posição $position');
+      debugPrint('✅ Photocard $photocardInstanceId movido para profile_wall no banco. Resultado: ${updateResult}');
+      debugPrint('📍 Verificando localização atualizada...');
     } catch (e) {
       debugPrint('❌ Erro ao colocar photocard no mural: $e');
       rethrow;

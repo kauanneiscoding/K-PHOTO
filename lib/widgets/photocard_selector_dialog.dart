@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:k_photo/data_storage_service.dart';
+import 'package:k_photo/models/profile_wall.dart';
 
 class PhotocardSelectorDialog extends StatefulWidget {
   final DataStorageService dataStorageService;
   final Function(String instanceId, String imagePath) onPhotocardSelected;
+  final List<ProfileWallSlot> currentWallSlots; // Adicionado parâmetro para slots atuais
 
   const PhotocardSelectorDialog({
     Key? key,
     required this.dataStorageService,
     required this.onPhotocardSelected,
+    required this.currentWallSlots, // Parâmetro obrigatório
   }) : super(key: key);
 
   @override
@@ -17,6 +20,7 @@ class PhotocardSelectorDialog extends StatefulWidget {
 
 class _PhotocardSelectorDialogState extends State<PhotocardSelectorDialog> {
   List<Map<String, dynamic>> _photocards = [];
+  List<ProfileWallSlot> _wallSlots = []; // Para controlar photocards no mural
   bool _isLoading = true;
   String _searchQuery = '';
 
@@ -24,6 +28,30 @@ class _PhotocardSelectorDialogState extends State<PhotocardSelectorDialog> {
   void initState() {
     super.initState();
     _loadPhotocards();
+    _loadWallSlots(); // Carrega os slots do mural
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Recarrega os dados sempre que o diálogo é reconstruído
+    _loadWallSlots();
+    _loadPhotocards();
+  }
+
+  Future<void> _loadWallSlots() async {
+    // Usa os slots atuais passados como parâmetro em vez de buscar do banco
+    if (mounted) {
+      setState(() {
+        _wallSlots = widget.currentWallSlots;
+      });
+      debugPrint('🔄 Slots do mural carregados do estado local: ${_wallSlots.length} slots');
+      for (final slot in _wallSlots) {
+        if (!slot.isEmpty) {
+          debugPrint('  - Slot ${slot.position}: ${slot.photocardInstanceId}');
+        }
+      }
+    }
   }
 
   Future<void> _loadPhotocards() async {
@@ -45,11 +73,35 @@ class _PhotocardSelectorDialogState extends State<PhotocardSelectorDialog> {
   }
 
   List<Map<String, dynamic>> get _filteredPhotocards {
-    if (_searchQuery.isEmpty) return _photocards;
+    if (_searchQuery.isEmpty) {
+      // Filtra photocards que já estão no mural
+      final wallInstanceIds = _wallSlots
+          .where((slot) => !slot.isEmpty)
+          .map((slot) => slot.photocardInstanceId!)
+          .toSet();
+      
+      return _photocards.where((card) {
+        final instanceId = card['instance_id'] as String;
+        return !wallInstanceIds.contains(instanceId);
+      }).toList();
+    }
+    
+    // Filtra photocards que já estão no mural e aplica busca
+    final wallInstanceIds = _wallSlots
+        .where((slot) => !slot.isEmpty)
+        .map((slot) => slot.photocardInstanceId!)
+        .toSet();
     
     return _photocards.where((card) {
+      final instanceId = card['instance_id'] as String;
       final imagePath = card['image_path'].toString().toLowerCase();
       final location = card['location'].toString().toLowerCase();
+      
+      // Não mostra se já está no mural
+      if (wallInstanceIds.contains(instanceId)) {
+        return false;
+      }
+      
       return imagePath.contains(_searchQuery.toLowerCase()) ||
              location.contains(_searchQuery.toLowerCase());
     }).toList();
@@ -129,8 +181,14 @@ class _PhotocardSelectorDialogState extends State<PhotocardSelectorDialog> {
                           itemCount: _filteredPhotocards.length,
                           itemBuilder: (context, index) {
                             final card = _filteredPhotocards[index];
+                            final instanceId = card['instance_id'] as String;
+                            
+                            // Verifica se este photocard já está no mural
+                            final isInWall = _wallSlots.any((slot) => 
+                                !slot.isEmpty && slot.photocardInstanceId == instanceId);
+                            
                             return GestureDetector(
-                              onTap: () {
+                              onTap: isInWall ? null : () {
                                 widget.onPhotocardSelected(card['instance_id'], card['image_path']);
                                 Navigator.pop(context);
                               },
@@ -148,6 +206,11 @@ class _PhotocardSelectorDialogState extends State<PhotocardSelectorDialog> {
   Widget _buildPhotocardCard(Map<String, dynamic> card) {
     final imagePath = card['image_path'] as String;
     final location = card['location'] as String;
+    final instanceId = card['instance_id'] as String;
+    
+    // Verifica se este photocard já está no mural
+    final isInWall = _wallSlots.any((slot) => 
+        !slot.isEmpty && slot.photocardInstanceId == instanceId);
   
     return Stack(
       children: [
@@ -164,6 +227,37 @@ class _PhotocardSelectorDialogState extends State<PhotocardSelectorDialog> {
             ),
           ),
         ),
+        // Indicador visual se já está no mural
+        if (isInWall)
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.6),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.wallpaper,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'No Mural',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }

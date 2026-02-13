@@ -5,6 +5,9 @@ import 'package:flutter/rendering.dart'; // Para CustomClipper
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
+import 'package:k_photo/data_storage_service.dart';
+import 'package:k_photo/models/profile_wall.dart';
+import 'package:k_photo/widgets/photocard_selector_dialog.dart';
 
 class EditProfilePage extends StatefulWidget {
   final String? currentDisplayName;
@@ -37,6 +40,13 @@ class _EditProfilePageState extends State<EditProfilePage> {
   String? _profileBackgroundUrl;
   bool _profileBackgroundBlur = false;
   double _profileBackgroundOpacity = 0.2;
+  
+  // Variáveis para o mural
+  List<ProfileWallSlot> _profileWallSlots = [];
+  List<ProfileWallSlot> _originalProfileWallSlots = []; // Estado original
+  bool _isLoadingWall = false;
+  final DataStorageService _dataStorageService = DataStorageService();
+  bool _wallHasChanges = false; // Controle de mudanças
 
   @override
   void initState() {
@@ -49,6 +59,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
     }
     _loadUserProfile();
     _loadPurchasedFrames();
+    _loadProfileWall();
   }
 
   Future<void> _loadUserProfile() async {
@@ -86,6 +97,185 @@ class _EditProfilePageState extends State<EditProfilePage> {
       _availableFrames = List<String>.from(response.map((e) => e['frame_path']));
       _availableFrames.insert(0, 'assets/frame_none.png'); // sempre incluir opção de sem moldura
     });
+  }
+
+  Future<void> _loadProfileWall() async {
+    setState(() => _isLoadingWall = true);
+    try {
+      final wallSlots = await _dataStorageService.getProfileWall();
+      if (mounted) {
+        setState(() {
+          // Se há mudanças pendentes, não sobrescreve o estado local
+          if (!_wallHasChanges) {
+            // Garante que sempre tenha 3 posições (0, 1, 2)
+            _profileWallSlots = List.generate(3, (index) {
+              final existingSlot = wallSlots.firstWhere(
+                (s) => s.position == index,
+                orElse: () => ProfileWallSlot(position: index),
+              );
+              return existingSlot;
+            });
+            _originalProfileWallSlots = List.from(_profileWallSlots); // Salva estado original
+          }
+          _isLoadingWall = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingWall = false);
+      }
+      debugPrint('❌ Erro ao carregar mural: $e');
+    }
+  }
+
+  void _showPhotocardSelector(int position) {
+    final mainContext = context; // Salva referência ao contexto principal
+    showDialog(
+      context: context,
+      builder: (context) => PhotocardSelectorDialog(
+        dataStorageService: _dataStorageService,
+        currentWallSlots: _profileWallSlots, // Passa os slots atuais
+        onPhotocardSelected: (instanceId, imagePath) async {
+          // Primeiro, verifica se já existe um photocard na posição e move para a mochila
+          final currentSlot = _profileWallSlots.firstWhere(
+            (s) => s.position == position,
+            orElse: () => ProfileWallSlot(position: position),
+          );
+          
+          if (!currentSlot.isEmpty) {
+            // Move o photocard atual de volta para a mochila e sincroniza imediatamente
+            await _dataStorageService.updateCardLocation(
+              currentSlot.photocardInstanceId!,
+              'backpack',
+              binderId: null,
+              slotIndex: null,
+              pageNumber: null,
+            );
+            debugPrint('✅ Photocard ${currentSlot.photocardInstanceId} movido para mochila (troca no mural)');
+          }
+          
+          // Atualiza apenas o estado local, não salva no banco ainda
+          final newSlot = ProfileWallSlot(
+            position: position,
+            photocardInstanceId: instanceId,
+            photocardImagePath: imagePath,
+            placedAt: DateTime.now(),
+          );
+          
+          setState(() {
+            // Garante que a lista tenha tamanho suficiente
+            while (_profileWallSlots.length <= position) {
+              _profileWallSlots.add(ProfileWallSlot(position: _profileWallSlots.length));
+            }
+            _profileWallSlots[position] = newSlot;
+            _wallHasChanges = true;
+          });
+          
+          if (mounted) {
+            ScaffoldMessenger.of(mainContext).showSnackBar(
+              const SnackBar(
+                content: Text('Photocard trocado! Salve as alterações para confirmar.'),
+                backgroundColor: Colors.blue,
+              ),
+            );
+          }
+        },
+      ),
+    );
+  }
+
+  void _removePhotocardFromWall(int position) async {
+    // Move o photocard para a mochila imediatamente
+    final slot = _profileWallSlots.firstWhere(
+      (s) => s.position == position,
+      orElse: () => ProfileWallSlot(position: position),
+    );
+    
+    if (slot != null && !slot.isEmpty) {
+      // Move o photocard para a mochila e sincroniza imediatamente
+      await _dataStorageService.updateCardLocation(
+        slot.photocardInstanceId!,
+        'backpack',
+        binderId: null,
+        slotIndex: null,
+        pageNumber: null,
+      );
+      debugPrint('✅ Photocard ${slot.photocardInstanceId} movido para mochila (remoção do mural)');
+    }
+    
+    // Remove apenas do estado local, não do banco ainda
+    setState(() {
+      // Garante que a lista tenha tamanho suficiente
+      while (_profileWallSlots.length <= position) {
+        _profileWallSlots.add(ProfileWallSlot(position: _profileWallSlots.length));
+      }
+      _profileWallSlots[position] = ProfileWallSlot(position: position);
+      _wallHasChanges = true;
+    });
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Photocard removido! Salve as alterações para confirmar.'),
+        backgroundColor: Colors.orange,
+      ),
+    );
+  }
+
+  void _showPhotocardOptions(int position, ProfileWallSlot slot) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Opções do Photocard',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.pink[700],
+              ),
+            ),
+            const SizedBox(height: 20),
+            ListTile(
+              leading: Icon(Icons.swap_horiz, color: Colors.pink[600]),
+              title: const Text('Trocar photocard'),
+              subtitle: const Text('Selecionar outro photocard para esta posição'),
+              onTap: () {
+                Navigator.pop(context);
+                _showPhotocardSelector(position);
+              },
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: Icon(Icons.remove_circle_outline, color: Colors.red[600]),
+              title: const Text('Remover do mural'),
+              subtitle: const Text('Remover photocard e mover para a mochila'),
+              onTap: () {
+                Navigator.pop(context);
+                _removePhotocardFromWall(position);
+              },
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
   }
 
   bool _isUploading = false;
@@ -200,7 +390,14 @@ Future<void> _pickAvatar() async {
     };
 
     try {
+      // Salva as alterações do perfil
       await _supabase.from('user_profile').update(updates).eq('user_id', userId);
+      
+      // Salva as alterações do mural se houver mudanças
+      if (_wallHasChanges) {
+        await _saveWallChanges();
+      }
+      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Perfil atualizado com sucesso')),
@@ -210,6 +407,62 @@ Future<void> _pickAvatar() async {
       Navigator.pop(context, 'updated');
     } catch (e) {
       debugPrint('❌ Erro ao salvar perfil: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao salvar perfil: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _saveWallChanges() async {
+    try {
+      // Primeiro, remove todos os photocards do mural do usuário
+      await _supabase
+          .from('profile_wall')
+          .delete()
+          .eq('user_id', _supabase.auth.currentUser!.id);
+
+      // Depois, insere os photocards atualizados
+      final List<Map<String, dynamic>> wallInserts = [];
+      
+      for (final slot in _profileWallSlots) {
+        if (!slot.isEmpty) {
+          // Move o photocard da localização atual para o mural
+          await _dataStorageService.updateCardLocation(
+            slot.photocardInstanceId!,
+            'profile_wall',
+            binderId: null,
+            slotIndex: null,
+            pageNumber: null,
+          );
+          
+          // Adiciona ao mural
+          wallInserts.add({
+            'user_id': _supabase.auth.currentUser!.id,
+            'position': slot.position,
+            'photocard_instance_id': slot.photocardInstanceId,
+            'photocard_image_path': slot.photocardImagePath,
+            'placed_at': DateTime.now().toIso8601String(),
+          });
+          
+          debugPrint('✅ Photocard ${slot.photocardInstanceId} movido para o mural (salvando)');
+        }
+      }
+
+      if (wallInserts.isNotEmpty) {
+        await _supabase
+            .from('profile_wall')
+            .insert(wallInserts);
+      }
+      
+      // Atualiza o estado original
+      _originalProfileWallSlots = List.from(_profileWallSlots);
+      _wallHasChanges = false;
+      
+    } catch (e) {
+      debugPrint('❌ Erro ao salvar mural: $e');
+      rethrow;
     }
   }
 
@@ -358,7 +611,15 @@ Future<void> _pickAvatar() async {
         top: 0,
         right: 0,
         bottom: 0,
-        child: SafeArea(
+        child: WillPopScope(
+          onWillPop: () async {
+            if (_wallHasChanges) {
+              final shouldLeave = await _showUnsavedChangesDialog();
+              return shouldLeave ?? false;
+            }
+            return true;
+          },
+          child: SafeArea(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(16.0),
             child: Column(
@@ -456,6 +717,174 @@ Future<void> _pickAvatar() async {
                   ),
                 ),
                 const SizedBox(height: 30),
+                // Mural
+                Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.pink[50]!.withOpacity(0.9),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.pink.withOpacity(0.1),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Mural do Perfil',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.pink[700],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _isLoadingWall
+                          ? const Center(child: CircularProgressIndicator())
+                          : GridView.count(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              crossAxisCount: 3,
+                              mainAxisSpacing: 12,
+                              crossAxisSpacing: 12,
+                              childAspectRatio: 0.75, // Mais alto que largo (estilo binder)
+                              children: List.generate(3, (index) {
+                                final slot = _profileWallSlots.firstWhere(
+                                  (s) => s.position == index,
+                                  orElse: () => ProfileWallSlot(position: index),
+                                );
+                                
+                                return GestureDetector(
+                                  onTap: () {
+                                    if (slot.isEmpty) {
+                                      _showPhotocardSelector(index);
+                                    } else {
+                                      _showPhotocardOptions(index, slot);
+                                    }
+                                  },
+                                  child: Container(
+                                    height: double.infinity, // Garante proporção correta
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(12),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.pink.withOpacity(0.15),
+                                          blurRadius: 8,
+                                          offset: const Offset(0, 4),
+                                        ),
+                                      ],
+                                    ),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: AspectRatio(
+                                        aspectRatio: 2/3, // Proporção padrão de photocard
+                                        child: Stack(
+                                          children: [
+                                            if (slot.isEmpty)
+                                              Container(
+                                                color: Colors.grey[50],
+                                                child: Center(
+                                                  child: Column(
+                                                    mainAxisAlignment: MainAxisAlignment.center,
+                                                    children: [
+                                                      Icon(
+                                                        Icons.add_circle_outline,
+                                                        color: Colors.pink[300],
+                                                        size: 36,
+                                                      ),
+                                                      const SizedBox(height: 8),
+                                                      Text(
+                                                        'Adicionar',
+                                                        style: TextStyle(
+                                                          color: Colors.pink[600],
+                                                          fontSize: 14,
+                                                          fontWeight: FontWeight.w500,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              )
+                                            else
+                                              slot.photocardImagePath!.startsWith('http')
+                                                  ? Image.network(
+                                                      slot.photocardImagePath!,
+                                                      fit: BoxFit.cover,
+                                                      width: double.infinity,
+                                                      height: double.infinity,
+                                                      errorBuilder: (context, error, stackTrace) {
+                                                        return Container(
+                                                          color: Colors.grey[200],
+                                                          child: Icon(
+                                                            Icons.broken_image,
+                                                            color: Colors.grey[400],
+                                                            size: 40,
+                                                          ),
+                                                        );
+                                                      },
+                                                    )
+                                                  : Image.asset(
+                                                      slot.photocardImagePath!,
+                                                      fit: BoxFit.cover,
+                                                      width: double.infinity,
+                                                      height: double.infinity,
+                                                      errorBuilder: (context, error, stackTrace) {
+                                                        return Container(
+                                                          color: Colors.grey[200],
+                                                          child: Icon(
+                                                            Icons.broken_image,
+                                                            color: Colors.grey[400],
+                                                            size: 40,
+                                                          ),
+                                                        );
+                                                      },
+                                                    ),
+                                            if (!slot.isEmpty)
+                                              Positioned(
+                                                top: 6,
+                                                right: 6,
+                                                child: Container(
+                                                  padding: const EdgeInsets.all(3),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.black.withOpacity(0.7),
+                                                    shape: BoxShape.circle,
+                                                  ),
+                                                  child: Icon(
+                                                    Icons.more_vert,
+                                                    color: Colors.white,
+                                                    size: 18,
+                                                  ),
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }),
+                            ),
+                      const SizedBox(height: 16),
+                      Center(
+                        child: Text(
+                          "✧.*Seu mural pessoal*.✧",
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.pink[700],
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 30),
                 // Botão Salvar
                 SizedBox(
                   width: double.infinity,
@@ -485,6 +914,7 @@ Future<void> _pickAvatar() async {
           ),
         ),
       ),
+      ),
     );
     
     // Add back button
@@ -498,7 +928,16 @@ Future<void> _pickAvatar() async {
             color: Colors.pink,
             size: 30,
           ),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () async {
+          if (_wallHasChanges) {
+            final shouldLeave = await _showUnsavedChangesDialog();
+            if (shouldLeave == true) {
+              Navigator.pop(context);
+            }
+          } else {
+            Navigator.pop(context);
+          }
+        },
         ),
       ),
     );
@@ -542,6 +981,27 @@ Future<void> _pickAvatar() async {
     );
   }
   
+  Future<bool?> _showUnsavedChangesDialog() async {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Alterações não salvas'),
+        content: const Text('Você fez alterações no mural que não foram salvas. Deseja sair sem salvar?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Sair sem salvar'),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _uploadProfileBackground() async {
     // Teste imediato para verificar se o clique funciona
     debugPrint('🔘 BOTÃO CLICADO!');
