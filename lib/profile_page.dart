@@ -12,6 +12,7 @@ import 'package:k_photo/pages/edit_profile_page.dart';
 import 'package:k_photo/services/frame_service.dart';
 import 'package:k_photo/widgets/photocard_selector_dialog.dart';
 import 'package:k_photo/models/profile_wall.dart';
+import 'package:k_photo/models/profile_theme.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -48,6 +49,9 @@ class _ProfilePageState extends State<ProfilePage> {
   String? _profileBackgroundUrl;
   bool _profileBackgroundBlur = false;
   double _profileBackgroundOpacity = 0.2;
+  
+  // Variável para tema
+  ProfileTheme _profileTheme = ProfileTheme.pink;
 
   @override
   void initState() {
@@ -133,7 +137,6 @@ class _ProfilePageState extends State<ProfilePage> {
 
     try {
       final response = await _supabaseService.getUserProfile(profileUserId);
-      debugPrint('🔁 Perfil recarregado: $response');
 
       if (response != null && mounted) {
         setState(() {
@@ -144,6 +147,12 @@ class _ProfilePageState extends State<ProfilePage> {
           _profileBackgroundUrl = response['profile_background_url'];
           _profileBackgroundBlur = response['profile_background_blur'] ?? false;
           _profileBackgroundOpacity = (response['profile_background_opacity'] as num?)?.toDouble() ?? 0.2;
+          
+          // Carregar tema
+          final themeString = response['theme'] as String?;
+          if (themeString != null) {
+            _profileTheme = ProfileTheme.fromString(themeString);
+          }
         });
       }
     } catch (e) {
@@ -834,17 +843,25 @@ Future<void> _pickImage() async {
                   _buildProfilePicture(),
                   const SizedBox(height: 12),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                     decoration: BoxDecoration(
-                      color: Colors.pink[50],
+                      color: _profileTheme.surfaceColor,
+                      borderRadius: BorderRadius.circular(25),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _profileTheme.primaryColor.withOpacity(0.1),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                     ),
                     child: Text(
                       (_displayName?.isNotEmpty ?? false) ? _displayName! : (_username != null ? _username! : 'Carregando...'),
                       style: TextStyle(
                         fontSize: 24,
                         fontFamily: 'Nunito',
-                        fontWeight: FontWeight.w700,
-                        color: Colors.pink[700],
+                        fontWeight: FontWeight.w600,
+                        color: _profileTheme.textColor,
                       ),
                     ),
                   ),
@@ -852,9 +869,9 @@ Future<void> _pickImage() async {
               Text(
                 _username != null ? '@$_username' : 'Carregando...',
                 style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey[700],
-                  fontWeight: FontWeight.w500,
+                  fontSize: 18,
+                  color: _profileTheme.usernameColor,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(height: 16),
@@ -878,8 +895,8 @@ Future<void> _pickImage() async {
                     }
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.pink[100],
-                    foregroundColor: Colors.pink[700],
+                    backgroundColor: _profileTheme.surfaceColor,
+                    foregroundColor: _profileTheme.primaryColor,
                     padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(20),
@@ -894,11 +911,11 @@ Future<void> _pickImage() async {
                 margin: const EdgeInsets.only(bottom: 16),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.pink[50]!.withOpacity(0.9),
+                  color: _profileTheme.surfaceColor.withOpacity(0.9),
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.pink.withOpacity(0.1),
+                      color: _profileTheme.primaryColor.withOpacity(0.1),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
@@ -916,7 +933,7 @@ Future<void> _pickImage() async {
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.bold,
-                              color: Colors.pink[700],
+                              color: _profileTheme.isDark ? Colors.white : _profileTheme.primaryColor,
                             ),
                           ),
                         ),
@@ -930,8 +947,16 @@ Future<void> _pickImage() async {
                               child: Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                 decoration: BoxDecoration(
-                                  color: Colors.grey[200],
+                                  color: _profileTheme.isDark 
+                                    ? Colors.grey[700]!.withOpacity(0.8)
+                                    : Colors.grey[200]!.withOpacity(0.9),
                                   borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                    color: _profileTheme.isDark 
+                                      ? Colors.grey[600]!
+                                      : Colors.grey[300]!,
+                                    width: 1,
+                                  ),
                                 ),
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
@@ -945,7 +970,9 @@ Future<void> _pickImage() async {
                                       child: Icon(
                                         _isMuralLiked ? Icons.favorite : Icons.favorite_border,
                                         key: ValueKey<bool>(_isMuralLiked),
-                                        color: Colors.pink[300],
+                                        color: _isMuralLiked 
+                                          ? (_profileTheme.isDark ? Colors.pink[300] : Colors.pink[400])
+                                          : (_profileTheme.isDark ? Colors.grey[400] : Colors.grey[600]),
                                         size: 18,
                                       ),
                                     ),
@@ -961,8 +988,8 @@ Future<void> _pickImage() async {
                                         key: ValueKey<int>(_muralLikesCount),
                                         style: TextStyle(
                                           fontSize: 14,
-                                          color: Colors.grey[700],
-                                          fontWeight: FontWeight.w500,
+                                          color: _profileTheme.isDark ? Colors.white : Colors.grey[800],
+                                          fontWeight: FontWeight.w600,
                                         ),
                                       ),
                                     ),
@@ -993,11 +1020,11 @@ Future<void> _pickImage() async {
                               return Container(
                                 height: double.infinity, // Garante proporção correta
                                 decoration: BoxDecoration(
-                                  color: Colors.white,
+                                  color: _profileTheme.isDark ? Colors.grey[800] : Colors.white,
                                   borderRadius: BorderRadius.circular(12),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: Colors.pink.withOpacity(0.15),
+                                      color: _profileTheme.primaryColor.withOpacity(0.15),
                                       blurRadius: 8,
                                       offset: const Offset(0, 4),
                                     ),
@@ -1011,21 +1038,21 @@ Future<void> _pickImage() async {
                                       children: [
                                         if (slot.isEmpty)
                                           Container(
-                                            color: Colors.grey[50],
+                                            color: _profileTheme.isDark ? Colors.grey[700] : Colors.grey[50],
                                             child: Center(
                                               child: Column(
                                                 mainAxisAlignment: MainAxisAlignment.center,
                                                 children: [
                                                   Icon(
                                                     Icons.photo_album_outlined,
-                                                    color: Colors.pink[300],
+                                                    color: _profileTheme.accentColor,
                                                     size: 36,
                                                   ),
                                                   const SizedBox(height: 8),
                                                   Text(
                                                     'Vazio',
                                                     style: TextStyle(
-                                                      color: Colors.pink[600],
+                                                      color: _profileTheme.primaryColor,
                                                       fontSize: 14,
                                                       fontWeight: FontWeight.w500,
                                                     ),

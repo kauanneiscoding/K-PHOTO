@@ -7,7 +7,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import 'package:k_photo/data_storage_service.dart';
 import 'package:k_photo/models/profile_wall.dart';
+import 'package:k_photo/models/profile_theme.dart';
 import 'package:k_photo/widgets/photocard_selector_dialog.dart';
+import 'package:k_photo/widgets/theme_selector.dart';
 
 class EditProfilePage extends StatefulWidget {
   final String? currentDisplayName;
@@ -38,6 +40,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
   
   // Variáveis para fundo de perfil
   String? _profileBackgroundUrl;
+  String? _originalBackgroundUrl; // Fundo original
   bool _profileBackgroundBlur = false;
   double _profileBackgroundOpacity = 0.2;
   
@@ -47,6 +50,38 @@ class _EditProfilePageState extends State<EditProfilePage> {
   bool _isLoadingWall = false;
   final DataStorageService _dataStorageService = DataStorageService();
   bool _wallHasChanges = false; // Controle de mudanças
+  
+  // Variável para tema
+  ProfileTheme _selectedTheme = ProfileTheme.pink;
+  ProfileTheme _originalTheme = ProfileTheme.pink; // Tema original
+
+  // Verifica se há mudanças não salvas
+  bool _hasUnsavedChanges() {
+    final displayNameChanged = _displayNameController.text.trim() != (widget.currentDisplayName ?? '');
+    final usernameChanged = _usernameController.text.trim() != (widget.currentUsername ?? '');
+    final avatarChanged = _avatarUrl != widget.currentPhotoUrl;
+    final frameChanged = _selectedFrame != (widget.currentFrameId ?? 'assets/frame_none.png');
+    final themeChanged = _selectedTheme != _originalTheme;
+    final backgroundChanged = _profileBackgroundUrl != _originalBackgroundUrl;
+    
+    debugPrint('🔍 Verificando mudanças:');
+    debugPrint('  Nome: $displayNameChanged');
+    debugPrint('  Username: $usernameChanged');
+    debugPrint('  Avatar: $avatarChanged');
+    debugPrint('  Frame: $frameChanged');
+    debugPrint('  Tema: $themeChanged');
+    debugPrint('  Fundo: $backgroundChanged');
+    debugPrint('  Mural: $_wallHasChanges');
+    
+    return displayNameChanged || usernameChanged || avatarChanged || 
+           frameChanged || themeChanged || backgroundChanged || _wallHasChanges;
+  }
+
+  // Atualizar estado de mudanças (chamado quando algo muda)
+  void _updateChangesState() {
+    // Força uma verificação imediata das mudanças
+    _hasUnsavedChanges();
+  }
 
   @override
   void initState() {
@@ -57,9 +92,23 @@ class _EditProfilePageState extends State<EditProfilePage> {
     if (widget.currentFrameId != null) {
       _selectedFrame = widget.currentFrameId!;
     }
+    
+    // Adicionar listeners para detectar mudanças
+    _displayNameController.addListener(_updateChangesState);
+    _usernameController.addListener(_updateChangesState);
+    
     _loadUserProfile();
     _loadPurchasedFrames();
     _loadProfileWall();
+  }
+
+  @override
+  void dispose() {
+    _displayNameController.removeListener(_updateChangesState);
+    _usernameController.removeListener(_updateChangesState);
+    _displayNameController.dispose();
+    _usernameController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadUserProfile() async {
@@ -68,7 +117,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
     final response = await _supabase
         .from('user_profile')
-        .select('display_name, avatar_url, selected_frame, profile_background_url, profile_background_blur, profile_background_opacity')
+        .select('display_name, avatar_url, selected_frame, profile_background_url, profile_background_blur, profile_background_opacity, theme')
         .eq('user_id', userId)
         .maybeSingle();
 
@@ -78,8 +127,16 @@ class _EditProfilePageState extends State<EditProfilePage> {
         _avatarUrl = response['avatar_url'];
         _selectedFrame = response['selected_frame'] ?? 'assets/frame_none.png';
         _profileBackgroundUrl = response['profile_background_url'];
+        _originalBackgroundUrl = _profileBackgroundUrl; // Salvar fundo original
         _profileBackgroundBlur = response['profile_background_blur'] ?? false;
         _profileBackgroundOpacity = (response['profile_background_opacity'] as num?)?.toDouble() ?? 0.2;
+        
+        // Carregar tema
+        final themeString = response['theme'] as String?;
+        if (themeString != null) {
+          _selectedTheme = ProfileTheme.fromString(themeString);
+          _originalTheme = _selectedTheme; // Salvar tema original
+        }
       });
     }
   }
@@ -336,6 +393,7 @@ Future<void> _pickAvatar() async {
     if (mounted) {
       setState(() {
         _avatarUrl = imageUrl;
+        _updateChangesState(); // Verificar mudanças
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -387,11 +445,16 @@ Future<void> _pickAvatar() async {
       'profile_background_url': _profileBackgroundUrl,
       'profile_background_blur': _profileBackgroundBlur,
       'profile_background_opacity': _profileBackgroundOpacity,
+      'theme': _selectedTheme.type.name,
     };
 
     try {
       // Salva as alterações do perfil
       await _supabase.from('user_profile').update(updates).eq('user_id', userId);
+      
+      // Atualizar estado original após salvar
+      _originalTheme = _selectedTheme;
+      _originalBackgroundUrl = _profileBackgroundUrl;
       
       // Salva as alterações do mural se houver mudanças
       if (_wallHasChanges) {
@@ -469,6 +532,7 @@ Future<void> _pickAvatar() async {
   void _selectFrame(String path) {
     setState(() {
       _selectedFrame = path;
+      _updateChangesState(); // Verificar mudanças
     });
   }
 
@@ -613,7 +677,7 @@ Future<void> _pickAvatar() async {
         bottom: 0,
         child: WillPopScope(
           onWillPop: () async {
-            if (_wallHasChanges) {
+            if (_hasUnsavedChanges()) {
               final shouldLeave = await _showUnsavedChangesDialog();
               return shouldLeave ?? false;
             }
@@ -646,6 +710,17 @@ Future<void> _pickAvatar() async {
                     fillColor: Colors.pink[50],
                   ),
                   style: TextStyle(color: Colors.pink[900]),
+                ),
+                const SizedBox(height: 20),
+                // Seção de Temas
+                ThemeSelector(
+                  selectedTheme: _selectedTheme,
+                  onThemeSelected: (theme) {
+                    setState(() {
+                      _selectedTheme = theme;
+                      _updateChangesState(); // Verificar mudanças
+                    });
+                  },
                 ),
                 const SizedBox(height: 20),
                 // Seção de Molduras
@@ -929,15 +1004,15 @@ Future<void> _pickAvatar() async {
             size: 30,
           ),
           onPressed: () async {
-          if (_wallHasChanges) {
-            final shouldLeave = await _showUnsavedChangesDialog();
-            if (shouldLeave == true) {
+            if (_hasUnsavedChanges()) {
+              final shouldLeave = await _showUnsavedChangesDialog();
+              if (shouldLeave == true) {
+                Navigator.pop(context);
+              }
+            } else {
               Navigator.pop(context);
             }
-          } else {
-            Navigator.pop(context);
-          }
-        },
+          },
         ),
       ),
     );
@@ -949,24 +1024,34 @@ Future<void> _pickAvatar() async {
         right: 10,
         child: Container(
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.9),
-            borderRadius: BorderRadius.circular(20),
+            color: Colors.white.withOpacity(0.95),
+            borderRadius: BorderRadius.circular(30),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.2),
+                color: Colors.pink.withOpacity(0.3),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+              BoxShadow(
+                color: Colors.white.withOpacity(0.8),
                 blurRadius: 8,
-                offset: const Offset(0, 2),
+                offset: const Offset(-1, -1),
               ),
             ],
+            border: Border.all(
+              color: Colors.pink[100]!,
+              width: 2,
+            ),
           ),
           child: IconButton(
             icon: Icon(
-              Icons.wallpaper,
-              color: Colors.pink[600],
-              size: 24,
+              Icons.wallpaper_outlined,
+              color: Colors.pink[400],
+              size: 28,
             ),
             onPressed: _uploadProfileBackground,
             tooltip: 'Alterar fundo do perfil',
+            padding: const EdgeInsets.all(12),
           ),
         ),
       ),
@@ -986,7 +1071,7 @@ Future<void> _pickAvatar() async {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Alterações não salvas'),
-        content: const Text('Você fez alterações no mural que não foram salvas. Deseja sair sem salvar?'),
+        content: const Text('Você fez alterações que não foram salvas. Deseja sair sem salvar?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -1105,6 +1190,7 @@ Future<void> _pickAvatar() async {
 
           setState(() {
             _profileBackgroundUrl = publicUrl;
+            _updateChangesState(); // Verificar mudanças
           });
 
           if (mounted) {

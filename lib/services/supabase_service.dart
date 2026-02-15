@@ -8,6 +8,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:k_photo/currency_service.dart';
 import 'package:k_photo/data_storage_service.dart';
+import 'package:k_photo/models/profile_theme.dart';
 
 class SupabaseService {
   static final SupabaseService _instance = SupabaseService._internal();
@@ -912,7 +913,7 @@ class SupabaseService {
     try {
       final response = await _client
           .from('user_profile')
-          .select('user_id, username, display_name, avatar_url, selected_frame, profile_background_url, profile_background_blur, profile_background_opacity')
+          .select('user_id, username, display_name, avatar_url, selected_frame, profile_background_url, profile_background_blur, profile_background_opacity, theme')
           .eq('user_id', userId)
           .maybeSingle();
       
@@ -996,6 +997,7 @@ class SupabaseService {
     String? username,
     String? avatarUrl,
     String? frameId,
+    String? theme,
   }) async {
     final userId = _client.auth.currentUser?.id;
     if (userId == null) throw Exception('Usuário não está logado');
@@ -1005,6 +1007,7 @@ class SupabaseService {
     if (username != null) updates['username'] = username;
     if (avatarUrl != null) updates['avatar_url'] = avatarUrl;
     if (frameId != null) updates['frame_id'] = frameId;
+    if (theme != null) updates['theme'] = theme;
 
     try {
       await _client.from('user_profile').update(updates).eq('user_id', userId);
