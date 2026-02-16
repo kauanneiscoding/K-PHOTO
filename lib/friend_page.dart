@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:k_photo/services/supabase_service.dart';
 import 'package:k_photo/widgets/avatar_with_frame.dart';
+import 'package:k_photo/pages/friend_profile_page.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class FriendPage extends StatefulWidget {
@@ -318,26 +319,40 @@ class _FriendPageState extends State<FriendPage> {
         final isOnline = isUserOnline(friend['last_seen']);
         final statusText = isOnline ? 'Online agora' : formatLastSeen(friend['last_seen']);
         
-        return ListTile(
-          leading: AvatarWithFrame(
-            imageUrl: friend['avatar_url'],
-            framePath: friend['selected_frame'] ?? 'assets/frame_none.png',
-            size: 42,
-            showOnlineStatus: true,
-            isOnline: isOnline,
-          ),
-          title: Text(
-            '@${friend['username']}',
-            style: TextStyle(
-              fontWeight: isOnline ? FontWeight.bold : FontWeight.normal,
+        return GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => FriendProfilePage(
+                  friendUserId: friend['user_id'],
+                  friendUsername: friend['username'],
+                ),
+              ),
+            );
+          },
+          child: ListTile(
+            leading: AvatarWithFrame(
+              imageUrl: friend['avatar_url'],
+              framePath: friend['selected_frame'] ?? 'assets/frame_none.png',
+              size: 42,
+              showOnlineStatus: true,
+              isOnline: isOnline,
             ),
-          ),
-          subtitle: Text(
-            statusText,
-            style: TextStyle(
-              color: isOnline ? Colors.green : null,
-              fontWeight: isOnline ? FontWeight.bold : FontWeight.normal,
+            title: Text(
+              '@${friend['username']}',
+              style: TextStyle(
+                fontWeight: isOnline ? FontWeight.bold : FontWeight.normal,
+              ),
             ),
+            subtitle: Text(
+              statusText,
+              style: TextStyle(
+                color: isOnline ? Colors.green : null,
+                fontWeight: isOnline ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
+            trailing: Icon(Icons.chevron_right, color: Colors.grey[400]),
           ),
         );
       }).toList(),

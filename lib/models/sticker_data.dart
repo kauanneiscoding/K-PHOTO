@@ -20,8 +20,8 @@ class StickerData {
   Map<String, dynamic> toMap() => {
         'id': id,
         'image_path': imagePath,
-        'x': x,
-        'y': y,
+        'position_x': x,
+        'position_y': y,
         'scale': scale,
         'rotation': rotation,
       };
@@ -29,8 +29,8 @@ class StickerData {
   factory StickerData.fromMap(Map<String, dynamic> map) => StickerData(
         id: map['id'],
         imagePath: map['image_path'],
-        x: map['x']?.toDouble() ?? 0.0,
-        y: map['y']?.toDouble() ?? 0.0,
+        x: map['position_x']?.toDouble() ?? map['x']?.toDouble() ?? 0.0,
+        y: map['position_y']?.toDouble() ?? map['y']?.toDouble() ?? 0.0,
         scale: map['scale']?.toDouble() ?? 1.0,
         rotation: map['rotation']?.toDouble() ?? 0.0,
       );

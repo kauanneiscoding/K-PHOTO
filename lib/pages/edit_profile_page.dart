@@ -10,6 +10,7 @@ import 'package:k_photo/models/profile_wall.dart';
 import 'package:k_photo/models/profile_theme.dart';
 import 'package:k_photo/widgets/photocard_selector_dialog.dart';
 import 'package:k_photo/widgets/theme_selector.dart';
+import 'package:k_photo/services/username_history_service.dart';
 
 class EditProfilePage extends StatefulWidget {
   final String? currentDisplayName;
@@ -50,6 +51,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
   List<ProfileWallSlot> _originalProfileWallSlots = []; // Estado original
   bool _isLoadingWall = false;
   final DataStorageService _dataStorageService = DataStorageService();
+  final UsernameHistoryService _usernameHistoryService = UsernameHistoryService();
   bool _wallHasChanges = false; // Controle de mudanças
   
   // Variável para tema
@@ -106,6 +108,18 @@ class _EditProfilePageState extends State<EditProfilePage> {
     return difference.inDays >= 30;
   }
 
+  // Calcular quantos dias faltam para poder trocar
+  int _getDaysUntilNextChange() {
+    if (_lastUsernameChange == null) return 0;
+    
+    final lastChange = DateTime.parse(_lastUsernameChange!);
+    final now = DateTime.now();
+    final difference = now.difference(lastChange);
+    final daysRemaining = 30 - difference.inDays;
+    
+    return daysRemaining > 0 ? daysRemaining : 0;
+  }
+
   // Verificar disponibilidade do username
   Future<void> _checkUsernameAvailability(String username) async {
     if (username.trim().isEmpty) return;
@@ -121,16 +135,14 @@ class _EditProfilePageState extends State<EditProfilePage> {
     });
 
     try {
-      final response = await _supabase
-          .from('user_profile')
-          .select('username')
-          .eq('username', username.trim())
-          .neq('user_id', _supabase.auth.currentUser?.id ?? '')
-          .maybeSingle();
+      final isAvailable = await _usernameHistoryService.isUsernameAvailable(
+        username.trim(),
+        currentUserId: _supabase.auth.currentUser?.id ?? '',
+      );
 
       if (mounted) {
         setState(() {
-          _isUsernameAvailable = response == null; // null = disponível
+          _isUsernameAvailable = isAvailable;
           _isCheckingUsername = false;
         });
       }
@@ -534,6 +546,23 @@ Future<void> _pickAvatar() async {
     final userId = _supabase.auth.currentUser?.id;
     if (userId == null) return;
 
+    // Verificar se pode mudar username antes de salvar
+    if (_usernameController.text.trim() != (widget.currentUsername ?? '')) {
+      if (!_canChangeUsername()) {
+        final daysRemaining = _getDaysUntilNextChange();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Você deve esperar $daysRemaining dia${daysRemaining == 1 ? '' : 's'} para trocar de nome de usuário novamente.'),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+        return; // Impede a troca
+      }
+    }
+
     final updates = {
       'display_name': _displayNameController.text.trim(),
       'bio': _bioController.text.trim(),
@@ -552,6 +581,17 @@ Future<void> _pickAvatar() async {
     }
 
     try {
+      // Salva username antigo no histórico se houver troca
+      if (_usernameController.text.trim() != (widget.currentUsername ?? '') && 
+          widget.currentUsername != null && 
+          widget.currentUsername!.isNotEmpty) {
+        await _usernameHistoryService.saveUsernameToHistory(
+          userId,
+          widget.currentUsername!,
+        );
+        debugPrint('✅ Username antigo "${widget.currentUsername}" salvo no histórico');
+      }
+
       // Salva as alterações do perfil
       await _supabase.from('user_profile').update(updates).eq('user_id', userId);
       
@@ -581,6 +621,9 @@ Future<void> _pickAvatar() async {
         if (e.toString().contains('duplicate key value violates unique constraint') && 
             e.toString().contains('user_profile_username_key')) {
           errorMessage = 'Este nome de usuário já está em uso. Por favor, escolha outro.';
+        } else if (e.toString().contains('username') && 
+                   (e.toString().contains('history') || e.toString().contains('cooldown'))) {
+          errorMessage = 'Este nome de usuário não pode ser usado agora. Ele estará disponível em 30 dias após a última troca.';
         } else {
           errorMessage = 'Erro ao salvar perfil: $e';
         }
@@ -832,39 +875,73 @@ Future<void> _pickAvatar() async {
                 ),
                 const SizedBox(height: 20),
                 // Campo de Nome único
-                TextField(
-                  controller: _usernameController,
-                  onChanged: (value) {
-                    _checkUsernameAvailability(value);
-                  },
-                  decoration: InputDecoration(
-                    labelText: 'Nome único',
-                    labelStyle: TextStyle(color: Colors.pink[700]),
-                    floatingLabelBehavior: FloatingLabelBehavior.always,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(15),
-                      borderSide: BorderSide(color: Colors.pink[300]!),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      controller: _usernameController,
+                      onChanged: (value) {
+                        _checkUsernameAvailability(value);
+                      },
+                      enabled: _canChangeUsername(),
+                      decoration: InputDecoration(
+                        labelText: 'Nome único',
+                        labelStyle: TextStyle(color: Colors.pink[700]),
+                        floatingLabelBehavior: FloatingLabelBehavior.always,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(15),
+                          borderSide: BorderSide(color: Colors.pink[300]!),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(15),
+                          borderSide: BorderSide(color: Colors.pink[400]!, width: 2),
+                        ),
+                        filled: true,
+                        fillColor: _canChangeUsername() ? Colors.pink[50] : Colors.grey[100],
+                        suffixIcon: _isCheckingUsername 
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: Padding(
+                                padding: EdgeInsets.all(4),
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                            )
+                          : _isUsernameAvailable 
+                              ? Icon(Icons.check_circle, color: Colors.green, size: 20)
+                              : Icon(Icons.error, color: Colors.red, size: 20),
+                      ),
+                      style: TextStyle(
+                        color: _canChangeUsername() ? Colors.pink[900] : Colors.grey[600],
+                      ),
                     ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(15),
-                      borderSide: BorderSide(color: Colors.pink[400]!, width: 2),
-                    ),
-                    filled: true,
-                    fillColor: Colors.pink[50],
-                    suffixIcon: _isCheckingUsername 
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: Padding(
-                            padding: EdgeInsets.all(4),
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                        )
-                      : _isUsernameAvailable 
-                          ? Icon(Icons.check_circle, color: Colors.green, size: 20)
-                          : Icon(Icons.error, color: Colors.red, size: 20),
-                  ),
-                  style: TextStyle(color: Colors.pink[900]),
+                    if (!_canChangeUsername() && _lastUsernameChange != null) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.orange[50],
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.orange[200]!),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.schedule, color: Colors.orange[600], size: 16),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Você pode trocar o nome de usuário em ${_getDaysUntilNextChange()} dia${_getDaysUntilNextChange() == 1 ? '' : 's'}.',
+                                style: TextStyle(
+                                  color: Colors.orange[700],
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
                 const SizedBox(height: 20),
                 // Seção de Temas

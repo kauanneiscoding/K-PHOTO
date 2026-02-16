@@ -1,10 +1,33 @@
 import 'dart:io';
+import 'package:k_photo/models/profile_wall.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Service responsible for handling social interactions like likes, comments, and reposts
 
 class SocialService {
   final SupabaseClient _supabase = Supabase.instance.client;
+
+  Future<List<ProfileWallSlot>> getProfileWall(String userId) async {
+    try {
+      final response = await _supabase
+          .from('profile_wall')
+          .select('*')
+          .eq('user_id', userId)
+          .order('position', ascending: true);
+
+      return List<Map<String, dynamic>>.from(response).map((data) {
+        return ProfileWallSlot(
+          position: data['position'],
+          photocardInstanceId: data['photocard_instance_id'],
+          photocardImagePath: data['photocard_image_path'],
+          placedAt: DateTime.tryParse(data['placed_at']),
+        );
+      }).toList();
+    } catch (e) {
+      print('❌ Erro ao carregar mural do perfil: $e');
+      return [];
+    }
+  }
 
   Future<Map<String, dynamic>> getProfileWallLikes(String profileUserId) async {
     final userId = _supabase.auth.currentUser?.id;
@@ -36,11 +59,21 @@ class SocialService {
     }
   }
 
-  Future<void> toggleProfileWallLike(String profileUserId, bool isLiked) async {
+  Future<void> toggleProfileWallLike(String profileUserId, [bool? currentLikeState]) async {
     final userId = _supabase.auth.currentUser?.id;
     if (userId == null) return;
 
     try {
+      // Verifica se já curtiu
+      final likedResponse = await _supabase
+          .from('profile_wall_likes')
+          .select('id')
+          .eq('profile_user_id', profileUserId)
+          .eq('user_id', userId)
+          .maybeSingle();
+      
+      final isLiked = likedResponse != null;
+
       if (isLiked) {
         await _supabase
             .from('profile_wall_likes')

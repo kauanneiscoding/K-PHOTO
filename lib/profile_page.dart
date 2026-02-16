@@ -421,6 +421,44 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  void _showLogoutDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Sair da conta'),
+          content: Text('Tem certeza que deseja sair da sua conta?'),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(
+                'Cancelar',
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop(); // Fecha o dialog
+                _handleLogout(); // Executa o logout
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red[600],
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: Text('Sair'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _saveSelectedFrame(String frame) async {
     try {
       await widget.dataStorageService.setSelectedFrame(frame);
@@ -808,6 +846,24 @@ Future<void> _pickImage() async {
     return Scaffold(
       extendBodyBehindAppBar: true,
       extendBody: true,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        automaticallyImplyLeading: false,
+        actions: [
+          IconButton(
+            icon: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(Icons.logout, color: Colors.black87, size: 20),
+            ),
+            onPressed: _showLogoutDialog,
+          ),
+        ],
+      ),
       body: Stack(
         children: [
           // Fundo de perfil (se existir) - cobrindo absolutamente tudo
@@ -924,9 +980,9 @@ Future<void> _pickImage() async {
                   ],
                 ),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Expanded(
                           flex: 3,
@@ -1003,10 +1059,11 @@ Future<void> _pickImage() async {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 4),
                     _isLoadingWall
                         ? const Center(child: CircularProgressIndicator())
                         : GridView.count(
+                            padding: const EdgeInsets.only(top:10),
                             shrinkWrap: true,
                             physics: const NeverScrollableScrollPhysics(),
                             crossAxisCount: 3,
