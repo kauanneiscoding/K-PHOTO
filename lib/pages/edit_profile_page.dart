@@ -32,6 +32,7 @@ class EditProfilePage extends StatefulWidget {
 class _EditProfilePageState extends State<EditProfilePage> {
   final SupabaseClient _supabase = Supabase.instance.client;
   final TextEditingController _displayNameController = TextEditingController();
+  final TextEditingController _bioController = TextEditingController(); // Controller para bio
 
   String? _avatarUrl;
   String _selectedFrame = 'assets/frame_none.png';
@@ -54,6 +55,14 @@ class _EditProfilePageState extends State<EditProfilePage> {
   // Variável para tema
   ProfileTheme _selectedTheme = ProfileTheme.pink;
   ProfileTheme _originalTheme = ProfileTheme.pink; // Tema original
+  
+  // Variáveis para bio
+  String? _originalBio; // Bio original
+  
+  // Variáveis para controle de username
+  String? _lastUsernameChange; // Data da última mudança
+  bool _isUsernameAvailable = true; // Disponibilidade do username
+  bool _isCheckingUsername = false; // Verificando disponibilidade
 
   // Verifica se há mudanças não salvas
   bool _hasUnsavedChanges() {
@@ -63,6 +72,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
     final frameChanged = _selectedFrame != (widget.currentFrameId ?? 'assets/frame_none.png');
     final themeChanged = _selectedTheme != _originalTheme;
     final backgroundChanged = _profileBackgroundUrl != _originalBackgroundUrl;
+    final bioChanged = _bioController.text.trim() != (_originalBio ?? '');
     
     debugPrint('🔍 Verificando mudanças:');
     debugPrint('  Nome: $displayNameChanged');
@@ -71,10 +81,11 @@ class _EditProfilePageState extends State<EditProfilePage> {
     debugPrint('  Frame: $frameChanged');
     debugPrint('  Tema: $themeChanged');
     debugPrint('  Fundo: $backgroundChanged');
+    debugPrint('  Bio: $bioChanged');
     debugPrint('  Mural: $_wallHasChanges');
     
     return displayNameChanged || usernameChanged || avatarChanged || 
-           frameChanged || themeChanged || backgroundChanged || _wallHasChanges;
+           frameChanged || themeChanged || backgroundChanged || bioChanged || _wallHasChanges;
   }
 
   // Atualizar estado de mudanças (chamado quando algo muda)
@@ -83,10 +94,87 @@ class _EditProfilePageState extends State<EditProfilePage> {
     _hasUnsavedChanges();
   }
 
+  // Verificar se pode mudar o username (30 dias de cooldown)
+  bool _canChangeUsername() {
+    final currentUsername = widget.currentUsername ?? '';
+    if (_lastUsernameChange == null) return true; // Primeira vez
+    
+    final lastChange = DateTime.parse(_lastUsernameChange!);
+    final now = DateTime.now();
+    final difference = now.difference(lastChange);
+    
+    return difference.inDays >= 30;
+  }
+
+  // Verificar disponibilidade do username
+  Future<void> _checkUsernameAvailability(String username) async {
+    if (username.trim().isEmpty) return;
+    if (username == widget.currentUsername) {
+      setState(() {
+        _isUsernameAvailable = true;
+      });
+      return;
+    }
+
+    setState(() {
+      _isCheckingUsername = true;
+    });
+
+    try {
+      final response = await _supabase
+          .from('user_profile')
+          .select('username')
+          .eq('username', username.trim())
+          .neq('user_id', _supabase.auth.currentUser?.id ?? '')
+          .maybeSingle();
+
+      if (mounted) {
+        setState(() {
+          _isUsernameAvailable = response == null; // null = disponível
+          _isCheckingUsername = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Erro ao verificar disponibilidade: $e');
+      if (mounted) {
+        setState(() {
+          _isUsernameAvailable = false;
+          _isCheckingUsername = false;
+        });
+      }
+    }
+  }
+
+  // Formatar data para exibição
+  String _formatDate(String dateString) {
+    try {
+      final date = DateTime.parse(dateString);
+      final now = DateTime.now();
+      final difference = now.difference(date);
+      
+      if (difference.inDays == 0) {
+        return 'Hoje';
+      } else if (difference.inDays == 1) {
+        return 'Ontem';
+      } else if (difference.inDays < 7) {
+        return '${difference.inDays} dias atrás';
+      } else if (difference.inDays < 30) {
+        final weeks = (difference.inDays / 7).floor();
+        return '$weeks semana${weeks == 1 ? '' : 's'} atrás';
+      } else {
+        final months = (difference.inDays / 30).floor();
+        return '$months mese${months == 1 ? '' : 's'} atrás';
+      }
+    } catch (e) {
+      return dateString;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _displayNameController.text = widget.currentDisplayName ?? '';
+    _bioController.text = ''; // Será carregado do _loadUserProfile
     _usernameController.text = widget.currentUsername ?? '';
     _avatarUrl = widget.currentPhotoUrl;
     if (widget.currentFrameId != null) {
@@ -95,6 +183,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
     
     // Adicionar listeners para detectar mudanças
     _displayNameController.addListener(_updateChangesState);
+    _bioController.addListener(_updateChangesState);
     _usernameController.addListener(_updateChangesState);
     
     _loadUserProfile();
@@ -105,8 +194,10 @@ class _EditProfilePageState extends State<EditProfilePage> {
   @override
   void dispose() {
     _displayNameController.removeListener(_updateChangesState);
+    _bioController.removeListener(_updateChangesState);
     _usernameController.removeListener(_updateChangesState);
     _displayNameController.dispose();
+    _bioController.dispose();
     _usernameController.dispose();
     super.dispose();
   }
@@ -117,13 +208,16 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
     final response = await _supabase
         .from('user_profile')
-        .select('display_name, avatar_url, selected_frame, profile_background_url, profile_background_blur, profile_background_opacity, theme')
+        .select('display_name, username, avatar_url, selected_frame, profile_background_url, profile_background_blur, profile_background_opacity, theme, bio, last_username_change')
         .eq('user_id', userId)
         .maybeSingle();
 
     if (response != null) {
       setState(() {
         _displayNameController.text = response['display_name'] ?? '';
+        _bioController.text = response['bio'] ?? '';
+        _usernameController.text = response['username'] ?? '';
+        _lastUsernameChange = response['last_username_change']; // Carregar data da última mudança
         _avatarUrl = response['avatar_url'];
         _selectedFrame = response['selected_frame'] ?? 'assets/frame_none.png';
         _profileBackgroundUrl = response['profile_background_url'];
@@ -137,6 +231,9 @@ class _EditProfilePageState extends State<EditProfilePage> {
           _selectedTheme = ProfileTheme.fromString(themeString);
           _originalTheme = _selectedTheme; // Salvar tema original
         }
+        
+        // Salvar bio original
+        _originalBio = response['bio'];
       });
     }
   }
@@ -439,6 +536,7 @@ Future<void> _pickAvatar() async {
 
     final updates = {
       'display_name': _displayNameController.text.trim(),
+      'bio': _bioController.text.trim(),
       'username': _usernameController.text.trim(),
       'avatar_url': _avatarUrl,
       'selected_frame': _selectedFrame,
@@ -448,6 +546,11 @@ Future<void> _pickAvatar() async {
       'theme': _selectedTheme.type.name,
     };
 
+    // Adicionar data da mudança se o username foi alterado
+    if (_usernameController.text.trim() != (widget.currentUsername ?? '')) {
+      updates['last_username_change'] = DateTime.now().toIso8601String();
+    }
+
     try {
       // Salva as alterações do perfil
       await _supabase.from('user_profile').update(updates).eq('user_id', userId);
@@ -455,6 +558,7 @@ Future<void> _pickAvatar() async {
       // Atualizar estado original após salvar
       _originalTheme = _selectedTheme;
       _originalBackgroundUrl = _profileBackgroundUrl;
+      _originalBio = _bioController.text.trim();
       
       // Salva as alterações do mural se houver mudanças
       if (_wallHasChanges) {
@@ -471,8 +575,22 @@ Future<void> _pickAvatar() async {
     } catch (e) {
       debugPrint('❌ Erro ao salvar perfil: $e');
       if (mounted) {
+        String errorMessage = 'Erro ao salvar perfil';
+        
+        // Verifica se é erro de username duplicado
+        if (e.toString().contains('duplicate key value violates unique constraint') && 
+            e.toString().contains('user_profile_username_key')) {
+          errorMessage = 'Este nome de usuário já está em uso. Por favor, escolha outro.';
+        } else {
+          errorMessage = 'Erro ao salvar perfil: $e';
+        }
+        
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao salvar perfil: $e')),
+          SnackBar(
+            content: Text(errorMessage),
+            backgroundColor: errorMessage.contains('já está em uso') ? Colors.orange : Colors.red,
+            duration: Duration(seconds: errorMessage.contains('já está em uso') ? 4 : 3),
+          ),
         );
       }
     }
@@ -698,6 +816,7 @@ Future<void> _pickAvatar() async {
                   decoration: InputDecoration(
                     labelText: 'Nome de Exibição',
                     labelStyle: TextStyle(color: Colors.pink[700]),
+                    floatingLabelBehavior: FloatingLabelBehavior.always,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(15),
                       borderSide: BorderSide(color: Colors.pink[300]!),
@@ -708,6 +827,42 @@ Future<void> _pickAvatar() async {
                     ),
                     filled: true,
                     fillColor: Colors.pink[50],
+                  ),
+                  style: TextStyle(color: Colors.pink[900]),
+                ),
+                const SizedBox(height: 20),
+                // Campo de Nome único
+                TextField(
+                  controller: _usernameController,
+                  onChanged: (value) {
+                    _checkUsernameAvailability(value);
+                  },
+                  decoration: InputDecoration(
+                    labelText: 'Nome único',
+                    labelStyle: TextStyle(color: Colors.pink[700]),
+                    floatingLabelBehavior: FloatingLabelBehavior.always,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: BorderSide(color: Colors.pink[300]!),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: BorderSide(color: Colors.pink[400]!, width: 2),
+                    ),
+                    filled: true,
+                    fillColor: Colors.pink[50],
+                    suffixIcon: _isCheckingUsername 
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: Padding(
+                            padding: EdgeInsets.all(4),
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : _isUsernameAvailable 
+                          ? Icon(Icons.check_circle, color: Colors.green, size: 20)
+                          : Icon(Icons.error, color: Colors.red, size: 20),
                   ),
                   style: TextStyle(color: Colors.pink[900]),
                 ),
@@ -955,6 +1110,40 @@ Future<void> _pickAvatar() async {
                             fontStyle: FontStyle.italic,
                           ),
                         ),
+                      ),
+                      const SizedBox(height: 16),
+                      // Campo de Bio
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          TextField(
+                            controller: _bioController,
+                            maxLines: 3,
+                            maxLength: 500,
+                            decoration: InputDecoration(
+                              labelText: 'Bio',
+                              labelStyle: TextStyle(color: Colors.pink[700]),
+                              hintText: 'Fale um pouco sobre você...',
+                              hintStyle: TextStyle(color: Colors.pink[300]),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(15),
+                                borderSide: BorderSide(color: Colors.pink[300]!),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(15),
+                                borderSide: BorderSide(color: Colors.pink[400]!, width: 2),
+                              ),
+                              filled: true,
+                              fillColor: Colors.pink[50],
+                              counterText: '${_bioController.text.length}/500',
+                              counterStyle: TextStyle(
+                                color: Colors.pink[600],
+                                fontSize: 12,
+                              ),
+                            ),
+                            style: TextStyle(color: Colors.pink[900]),
+                          ),
+                        ],
                       ),
                     ],
                   ),

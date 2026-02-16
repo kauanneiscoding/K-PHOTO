@@ -913,7 +913,7 @@ class SupabaseService {
     try {
       final response = await _client
           .from('user_profile')
-          .select('user_id, username, display_name, avatar_url, selected_frame, profile_background_url, profile_background_blur, profile_background_opacity, theme')
+          .select('user_id, username, display_name, avatar_url, selected_frame, profile_background_url, profile_background_blur, profile_background_opacity, theme, bio, last_username_change')
           .eq('user_id', userId)
           .maybeSingle();
       

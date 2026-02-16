@@ -38,6 +38,7 @@ class _ProfilePageState extends State<ProfilePage> {
   final SocialService _socialService = SocialService();
   String? _username;
   String? _displayName;
+  String? _userBio; // Bio do usuário
   List<ProfileWallSlot> _profileWallSlots = [];
   bool _isLoadingWall = false;
   bool _isLoadingMuralLikes = false;
@@ -142,6 +143,7 @@ class _ProfilePageState extends State<ProfilePage> {
         setState(() {
           _username = response['username'];
           _displayName = response['display_name'];
+          _userBio = response['bio']; // Carregar bio
           profileImagePath = response['avatar_url'];
           selectedFrame = response['selected_frame'] ?? 'assets/frame_none.png';
           _profileBackgroundUrl = response['profile_background_url'];
@@ -1105,12 +1107,15 @@ Future<void> _pickImage() async {
                     const SizedBox(height: 16),
                     Center(
                       child: Text(
-                        "✧.*Mural do perfil*.✧",
+                        _userBio?.isNotEmpty == true 
+                          ? _userBio!
+                          : "✧.*Mural do perfil*.✧",
                         style: TextStyle(
                           fontSize: 16,
-                          color: Colors.pink[700],
-                          fontStyle: FontStyle.italic,
+                          color: _profileTheme.textColor,
+                          fontStyle: _userBio?.isNotEmpty == true ? FontStyle.normal : FontStyle.italic,
                         ),
+                        textAlign: TextAlign.center,
                       ),
                     ),
                   ],
