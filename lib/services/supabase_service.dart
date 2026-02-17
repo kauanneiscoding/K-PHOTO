@@ -550,6 +550,9 @@ class SupabaseService {
     final user = _client.auth.currentUser;
     if (user == null || receiverId == user.id) return;
 
+    // Limpar solicitações antigas periodicamente
+    await cleanupOldFriendRequests();
+
     // Verificar se já existe uma solicitação pendente entre os usuários
     final existingRequest = await _client
         .from('friend_requests')
@@ -581,23 +584,31 @@ class SupabaseService {
     final user = _client.auth.currentUser;
     if (user == null) return;
 
-    // Atualiza a solicitação
-    await _client.from('friend_requests').update({
-      'status': 'accepted',
-    }).eq('id', requestId);
+    // Cria a amizade (um único registro com user1_id < user2_id)
+    final user1Id = user.id.compareTo(senderId) < 0 ? user.id : senderId;
+    final user2Id = user.id.compareTo(senderId) < 0 ? senderId : user.id;
+    
+    await _client.from('friends').insert({
+      'user1_id': user1Id,
+      'user2_id': user2Id,
+    });
 
-    // Cria a amizade nas duas direções
-    await _client.from('friends').insert([
-      {'user_id': user.id, 'friend_id': senderId},
-      {'user_id': senderId, 'friend_id': user.id},
-    ]);
+    // Remove a solicitação após a amizade ser criada
+    await _client.from('friend_requests')
+        .delete()
+        .eq('id', requestId);
+    
+    print('✅ Solicitação de amizade aceita e removida: $requestId');
   }
 
   /// Recusar solicitação de amizade
   Future<void> declineFriendRequest(String requestId) async {
+    // Remove a solicitação após ser recusada
     await _client.from('friend_requests')
-        .update({'status': 'declined'})
+        .delete()
         .eq('id', requestId);
+    
+    print('❌ Solicitação de amizade recusada e removida: $requestId');
   }
 
   /// Buscar solicitações pendentes recebidas
@@ -647,6 +658,29 @@ class SupabaseService {
     }).toList();
   }
 
+  /// Limpar solicitações de amizade antigas (mais de 30 dias)
+  Future<void> cleanupOldFriendRequests() async {
+    try {
+      final thirtyDaysAgo = DateTime.now().subtract(Duration(days: 30));
+      
+      final result = await _client
+          .from('friend_requests')
+          .delete()
+          .lt('created_at', thirtyDaysAgo.toIso8601String());
+      
+      // O delete do Supabase pode retornar null, então verificamos de forma segura
+      if (result == null) {
+        print('🧹 Limpadas solicitações de amizade antigas (resultado null)');
+      } else if (result.error == null) {
+        print('🧹 Limpadas solicitações de amizade antigas');
+      } else {
+        print('⚠️ Erro ao limpar solicitações: ${result.error?.message}');
+      }
+    } catch (e) {
+      print('❌ Erro ao limpar solicitações antigas: $e');
+    }
+  }
+
   /// Buscar lista de amigos
   Future<List<String>> getFriendIds() async {
     final user = _client.auth.currentUser;
@@ -654,12 +688,18 @@ class SupabaseService {
 
     final response = await _client
         .from('friends')
-        .select('friend_id')
-        .eq('user_id', user.id);
+        .select('user1_id, user2_id')
+        .or('user1_id.eq.${user.id},user2_id.eq.${user.id}');
 
-    return List<Map<String, dynamic>>.from(response)
-        .map((r) => r['friend_id'] as String)
-        .toList();
+    final friendIds = <String>[];
+    for (final friendship in response) {
+      final friendId = friendship['user1_id'] == user.id
+          ? friendship['user2_id']
+          : friendship['user1_id'];
+      friendIds.add(friendId as String);
+    }
+
+    return friendIds;
   }
 
   /// Buscar usuário por username
@@ -671,7 +711,10 @@ class SupabaseService {
           .eq('username', username)
           .maybeSingle();
 
-      if (response == null) return null;
+      if (response == null) {
+        print('Usuário não encontrado: $username');
+        return null;
+      }
 
       return {
         'id': response['user_id'],
@@ -926,28 +969,101 @@ class SupabaseService {
 
   /// Buscar detalhes dos amigos
   Future<List<Map<String, dynamic>>> getFriendsDetails() async {
-  final userId = _client.auth.currentUser?.id;
-  if (userId == null) return [];
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return [];
 
-  // Primeiro, buscar todos os friend_ids do usuário atual
-  final friendIdsResponse = await _client
-      .from('friends')
-      .select('friend_id')
-      .eq('user_id', userId);
+    // Buscar amizades onde o usuário é participante
+    final friendshipsResponse = await _client
+        .from('friends')
+        .select('user1_id, user2_id')
+        .or('user1_id.eq.$userId,user2_id.eq.$userId');
 
-  final friendIds = friendIdsResponse
-      .map((e) => e['friend_id'] as String)
-      .toList();
+    final friendIds = <String>[];
+    for (final friendship in friendshipsResponse) {
+      final friendId = friendship['user1_id'] == userId
+          ? friendship['user2_id']
+          : friendship['user1_id'];
+      friendIds.add(friendId as String);
+    }
 
-  if (friendIds.isEmpty) return [];
+    if (friendIds.isEmpty) return [];
 
-  // Agora buscar os detalhes dos amigos com base nos IDs
-  final detailsResponse = await _client
-      .from('user_profile')
-      .select('user_id, username, display_name, avatar_url, last_seen, selected_frame')
-      .in_('user_id', friendIds);
+    // Buscar detalhes dos amigos
+    final detailsResponse = await _client
+        .from('user_profile')
+        .select('user_id, username, display_name, avatar_url, last_seen, selected_frame')
+        .in_('user_id', friendIds);
 
-  return List<Map<String, dynamic>>.from(detailsResponse);
+    return List<Map<String, dynamic>>.from(detailsResponse);
+  }
+
+/// Desfazer amizade
+Future<void> unfriendUser(String friendId) async {
+  final user = _client.auth.currentUser;
+  if (user == null) throw Exception('Usuário não autenticado');
+
+  try {
+    print('🔍 Verificando amizade existente entre ${user.id} e $friendId...');
+    
+    // Verifica amizades em ambas as direções (só deve existir uma devido à constraint)
+    final friendship1 = await _client
+        .from('friends')
+        .select('id')
+        .eq('user1_id', user.id)
+        .eq('user2_id', friendId);
+        
+    final friendship2 = await _client
+        .from('friends')
+        .select('id')
+        .eq('user1_id', friendId)
+        .eq('user2_id', user.id);
+        
+    print('📊 Amizades encontradas:');
+    print('   - ${user.id} -> $friendId: ${friendship1.length} registros');
+    print('   - $friendId -> ${user.id}: ${friendship2.length} registros');
+    
+    if (friendship1.isEmpty && friendship2.isEmpty) {
+      print('⚠️ Nenhuma amizade encontrada para remover');
+      return;
+    }
+
+    // Remove a amizade na direção correta (só deve existir uma)
+    if (friendship1.isNotEmpty) {
+      final delete1 = await _client
+          .from('friends')
+          .delete()
+          .eq('user1_id', user.id)
+          .eq('user2_id', friendId);
+          
+      print('🗑️ Removida amizade ${user.id} -> $friendId');
+    }
+
+    if (friendship2.isNotEmpty) {
+      final delete2 = await _client
+          .from('friends')
+          .delete()
+          .eq('user1_id', friendId)
+          .eq('user2_id', user.id);
+          
+      print('🗑️ Removida amizade $friendId -> ${user.id}');
+    }
+    
+    // Verificação final para garantir que não restaram amizades
+    final remainingCheck = await _client
+        .from('friends')
+        .select('id')
+        .or('and(user1_id.eq.${user.id},user2_id.eq.$friendId),and(user1_id.eq.$friendId,user2_id.eq.${user.id})');
+        
+    if (remainingCheck.isNotEmpty) {
+      print('⚠️ Aviso: Ainda existem ${remainingCheck.length} amizades remanescentes');
+    } else {
+      print('✅ Verificação final: Nenhuma amizade remanescente');
+    }
+    
+  } catch (e) {
+    print('❌ Erro ao desfazer amizade: $e');
+    rethrow;
+  }
 }
 
   /// Faz upload de uma nova foto de perfil

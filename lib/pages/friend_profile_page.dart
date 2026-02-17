@@ -6,6 +6,8 @@ import 'package:k_photo/models/profile_wall.dart';
 import 'package:k_photo/services/social_service.dart';
 import 'package:k_photo/widgets/avatar_with_frame.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:k_photo/pages/chat_page.dart';
+import 'package:k_photo/services/supabase_service.dart';
 
 class FriendProfilePage extends StatefulWidget {
   final String friendUserId;
@@ -23,6 +25,7 @@ class FriendProfilePage extends StatefulWidget {
 
 class _FriendProfilePageState extends State<FriendProfilePage> {
   final SocialService _socialService = SocialService();
+  final SupabaseService _supabaseService = SupabaseService();
   final SupabaseClient _supabase = Supabase.instance.client;
   
   // Dados do perfil do amigo
@@ -155,6 +158,116 @@ class _FriendProfilePageState extends State<FriendProfilePage> {
     }
   }
 
+  void _openChat() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ChatPage(
+          friendUserId: widget.friendUserId,
+          friendUsername: widget.friendUsername,
+          friendDisplayName: _displayName,
+          friendAvatarUrl: _avatarUrl,
+          friendSelectedFrame: _selectedFrame,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _unfriendUser() async {
+    // Mostra diálogo de confirmação
+    final bool? confirmUnfriend = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(
+                Icons.warning_amber_rounded,
+                color: Colors.orange[600],
+                size: 24,
+              ),
+              const SizedBox(width: 8),
+              const Text('Desfazer Amizade'),
+            ],
+          ),
+          content: Text(
+            'Tem certeza que deseja desfazer a amizade com ${_displayName?.isNotEmpty == true ? _displayName! : widget.friendUsername}?\n\nVocê poderá se tornar amigo novamente no futuro.',
+            style: const TextStyle(fontSize: 16),
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(
+                'Cancelar',
+                style: TextStyle(
+                  color: Colors.grey[600],
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red[400],
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text(
+                'Desfazer Amizade',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmUnfriend == true) {
+      try {
+        await _supabaseService.unfriendUser(widget.friendUserId);
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.person_remove_rounded, color: Colors.white),
+                  const SizedBox(width: 8),
+                  const Text('Amizade desfeita'),
+                ],
+              ),
+              backgroundColor: Colors.red[400],
+              duration: const Duration(seconds: 3),
+            ),
+          );
+          
+          // Retorna para a página anterior
+          Navigator.of(context).pop();
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.error_outline, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Text('Erro ao desfazer amizade: $e'),
+                ],
+              ),
+              backgroundColor: Colors.red[600],
+            ),
+          );
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
@@ -245,7 +358,76 @@ class _FriendProfilePageState extends State<FriendProfilePage> {
                             fontWeight: FontWeight.w700,
                           ),
                         ),
-                        const SizedBox(height: 50),
+                        const SizedBox(height: 16),
+                        // Botões de ação
+                        Column(
+                          children: [
+                            // Primeira linha: Enviar Mensagem
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed: _openChat,
+                                icon: Icon(
+                                  Icons.chat_bubble_outline,
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                                label: Text(
+                                  'Enviar Mensagem',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    fontFamily: 'Nunito',
+                                  ),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.pink.shade400,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(25),
+                                  ),
+                                  elevation: 3,
+                                  shadowColor: Colors.pink.shade300,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            // Segunda linha: Desfazer Amizade
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed: _unfriendUser,
+                                icon: Icon(
+                                  Icons.person_remove_rounded,
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                                label: Text(
+                                  'Desfazer Amizade',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    fontFamily: 'Nunito',
+                                  ),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red.shade400,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(25),
+                                  ),
+                                  elevation: 3,
+                                  shadowColor: Colors.red.shade300,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 34),
                         // Mural
                         Container(
                           margin: const EdgeInsets.only(bottom: 16),
@@ -491,6 +673,28 @@ class _FriendProfilePageState extends State<FriendProfilePage> {
                 (Route<dynamic> route) => false,
               );
             },
+          ),
+        ),
+      ),
+    );
+
+    // Add message button
+    stackChildren.add(
+      Positioned(
+        right: 16,
+        top: MediaQuery.of(context).padding.top + 16,
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.3),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: IconButton(
+            icon: Icon(
+              Icons.chat_bubble_outline,
+              color: Colors.white,
+              size: 20,
+            ),
+            onPressed: _openChat,
           ),
         ),
       ),

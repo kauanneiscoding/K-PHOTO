@@ -27,13 +27,19 @@ class _FriendPageState extends State<FriendPage> {
   }
 
   Future<void> _loadFriendsAndRequests() async {
-    final friends = await _supabaseService.getFriendsDetails();
-    final requests = await _supabaseService.getPendingFriendRequests();
+    try {
+      final friends = await _supabaseService.getFriendsDetails();
+      final requests = await _supabaseService.getPendingFriendRequests();
 
-    setState(() {
-      _friends = friends;
-      _requests = requests;
-    });
+      if (mounted) {
+        setState(() {
+          _friends = friends;
+          _requests = requests;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Erro ao carregar amigos e solicitações: $e');
+    }
   }
 
   void _showAddFriendDialog() {
@@ -144,26 +150,30 @@ class _FriendPageState extends State<FriendPage> {
                         
                         await _supabaseService.sendFriendRequest(user['id']);
                         Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Row(
-                              children: [
-                                Icon(Icons.favorite, color: Colors.white),
-                                SizedBox(width: 8),
-                                Text('Solicitação enviada!'),
-                              ],
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Row(
+                                children: [
+                                  Icon(Icons.favorite, color: Colors.white),
+                                  SizedBox(width: 8),
+                                  Text('Solicitação enviada!'),
+                                ],
+                              ),
+                              backgroundColor: Colors.pink[400],
                             ),
-                            backgroundColor: Colors.pink[400],
-                          ),
-                        );
+                          );
+                        }
                         _loadFriendsAndRequests();
                       } catch (e) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Erro ao enviar solicitação: $e'),
-                            backgroundColor: Colors.red[400],
-                          ),
-                        );
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Erro ao enviar solicitação: $e'),
+                              backgroundColor: Colors.red[400],
+                            ),
+                          );
+                        }
                       }
                     },
                     child: Row(
@@ -426,8 +436,19 @@ class _FriendPageState extends State<FriendPage> {
                     child: IconButton(
                       icon: Icon(Icons.check_circle_outline, color: Colors.green[400]),
                       onPressed: () async {
-                        await _supabaseService.acceptFriendRequest(req['id'], req['sender_id']);
-                        _loadFriendsAndRequests();
+                        try {
+                          await _supabaseService.acceptFriendRequest(req['id'], req['sender_id']);
+                          _loadFriendsAndRequests();
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Erro ao aceitar solicitação: $e'),
+                                backgroundColor: Colors.red[400],
+                              ),
+                            );
+                          }
+                        }
                       },
                     ),
                   ),
@@ -440,8 +461,19 @@ class _FriendPageState extends State<FriendPage> {
                     child: IconButton(
                       icon: Icon(Icons.close_rounded, color: Colors.red[400]),
                       onPressed: () async {
-                        await _supabaseService.declineFriendRequest(req['id']);
-                        _loadFriendsAndRequests();
+                        try {
+                          await _supabaseService.declineFriendRequest(req['id']);
+                          _loadFriendsAndRequests();
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Erro ao recusar solicitação: $e'),
+                                backgroundColor: Colors.red[400],
+                              ),
+                            );
+                          }
+                        }
                       },
                     ),
                   ),
@@ -493,35 +525,50 @@ class _FriendPageState extends State<FriendPage> {
               child: IconButton(
                 icon: Icon(Icons.person_add, color: Colors.white),
                 onPressed: () async {
-                  final user = await _supabaseService.findUserByUsername(_searchController.text.trim());
-                  if (user != null) {
-                    await _supabaseService.sendFriendRequest(user['id']);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Row(
-                          children: [
-                            Icon(Icons.favorite, color: Colors.white),
-                            SizedBox(width: 8),
-                            Text('Solicitação enviada!'),
-                          ],
+                  try {
+                    final user = await _supabaseService.findUserByUsername(_searchController.text.trim());
+                    if (user != null) {
+                      await _supabaseService.sendFriendRequest(user['id']);
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Row(
+                              children: [
+                                Icon(Icons.favorite, color: Colors.white),
+                                SizedBox(width: 8),
+                                Text('Solicitação enviada!'),
+                              ],
+                            ),
+                            backgroundColor: Colors.pink[400],
+                          ),
+                        );
+                        _searchController.clear();
+                      }
+                    } else {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Row(
+                              children: [
+                                Icon(Icons.error_outline, color: Colors.white),
+                                SizedBox(width: 8),
+                                Text('Usuário não encontrado'),
+                              ],
+                            ),
+                            backgroundColor: Colors.red[400],
+                          ),
+                        );
+                      }
+                    }
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Erro ao buscar usuário: $e'),
+                          backgroundColor: Colors.red[400],
                         ),
-                        backgroundColor: Colors.pink[400],
-                      ),
-                    );
-                    _searchController.clear();
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Row(
-                          children: [
-                            Icon(Icons.error_outline, color: Colors.white),
-                            SizedBox(width: 8),
-                            Text('Usuário não encontrado'),
-                          ],
-                        ),
-                        backgroundColor: Colors.red[400],
-                      ),
-                    );
+                      );
+                    }
                   }
                 },
               ),
