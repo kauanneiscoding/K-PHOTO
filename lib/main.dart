@@ -326,10 +326,12 @@ class _HomePageState extends State<HomePage> {
     if (!mounted) return;
     final kCoins = await CurrencyService.getKCoins();
     final starCoins = await CurrencyService.getStarCoins();
-    setState(() {
-      _kCoins = kCoins;
-      _starCoins = starCoins;
-    });
+    if (mounted) {
+      setState(() {
+        _kCoins = kCoins;
+        _starCoins = starCoins;
+      });
+    }
   }
 
   @override

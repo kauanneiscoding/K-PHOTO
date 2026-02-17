@@ -846,24 +846,6 @@ Future<void> _pickImage() async {
     return Scaffold(
       extendBodyBehindAppBar: true,
       extendBody: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        automaticallyImplyLeading: false,
-        actions: [
-          IconButton(
-            icon: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(Icons.logout, color: Colors.black87, size: 20),
-            ),
-            onPressed: _showLogoutDialog,
-          ),
-        ],
-      ),
       body: Stack(
         children: [
           // Fundo de perfil (se existir) - cobrindo absolutamente tudo
@@ -886,6 +868,22 @@ Future<void> _pickImage() async {
                 ),
               ),
             ),
+          // Botão de logout no topo direito
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 16,
+            right: 16,
+            child: IconButton(
+              icon: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.logout, color: Colors.black87, size: 20),
+              ),
+              onPressed: _showLogoutDialog,
+            ),
+          ),
           // Conteúdo principal - sem SafeArea para grudar na barra
           Padding(
             padding: EdgeInsets.only(

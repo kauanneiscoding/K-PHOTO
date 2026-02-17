@@ -508,15 +508,15 @@ class _FriendProfilePageState extends State<FriendProfilePage> {
 
   Widget _buildProfilePicture() {
     return Container(
-      width: 120,
-      height: 120,
+      width: 140,
+      height: 140,
       child: Stack(
         alignment: Alignment.center,
         children: [
           if (_selectedFrame == 'assets/frame_none.png' || _selectedFrame?.isEmpty == true)
             Container(
-              width: 110,
-              height: 110,
+              width: 130,
+              height: 130,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 image: _avatarUrl != null && _avatarUrl!.isNotEmpty
@@ -530,7 +530,7 @@ class _FriendProfilePageState extends State<FriendProfilePage> {
                     : null,
               ),
               child: (_avatarUrl == null || _avatarUrl!.isEmpty)
-                  ? Icon(Icons.person, color: Colors.pink[300], size: 50)
+                  ? Icon(Icons.person, color: Colors.pink[300], size: 60)
                   : null,
             )
           else
@@ -540,8 +540,8 @@ class _FriendProfilePageState extends State<FriendProfilePage> {
                 ClipPath(
                   clipper: MolduraClipper(_selectedFrame!),
                   child: Container(
-                    width: 110,
-                    height: 110,
+                    width: 130,
+                    height: 130,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       image: _avatarUrl != null && _avatarUrl!.isNotEmpty
@@ -555,14 +555,14 @@ class _FriendProfilePageState extends State<FriendProfilePage> {
                           : null,
                     ),
                     child: (_avatarUrl == null || _avatarUrl!.isEmpty)
-                        ? Icon(Icons.person, color: Colors.pink[300], size: 50)
+                        ? Icon(Icons.person, color: Colors.pink[300], size: 60)
                         : null,
                   ),
                 ),
                 Image.asset(
                   _selectedFrame!,
-                  width: 120,
-                  height: 120,
+                  width: 140,
+                  height: 140,
                   fit: BoxFit.contain,
                 ),
               ],
@@ -584,7 +584,7 @@ class MolduraClipper extends CustomClipper<Path> {
     return Path()
       ..addOval(Rect.fromCircle(
         center: Offset(size.width / 2, size.height / 2),
-        radius: (size.width - 20) / 2, // Ligeiramente menor que a moldura
+        radius: (size.width - 20) / 2, // Margem ajustada para o novo tamanho
       ));
   }
 

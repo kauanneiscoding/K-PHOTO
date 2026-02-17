@@ -6,6 +6,7 @@ import 'package:timeago/timeago.dart' as timeago;
 import 'package:k_photo/widgets/avatar_with_frame.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:k_photo/friend_page.dart';
+import 'package:k_photo/pages/friend_profile_page.dart';
 import 'package:flutter/rendering.dart'; // Para CustomClipper
 
 import '../models/post.dart';
@@ -692,6 +693,20 @@ void _mostrarModalComentarios(Post post) async {
     print('Navegando para amizades...');
   }
 
+  void _navegarParaPerfilAmigo(Post post) {
+    if (post.userId != null && post.username != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => FriendProfilePage(
+            friendUserId: post.userId!,
+            friendUsername: post.username!,
+          ),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -904,14 +919,19 @@ void _mostrarModalComentarios(Post post) async {
                         padding: const EdgeInsets.all(10),
                         child: Row(
                           children: [
-                            Container(
-                              width: 50,
-                              height: 50,
-                              child: Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  // Imagem de perfil ou ícone
-                                  if (post.selectedFrame != null && post.selectedFrame != 'assets/frame_none.png')
+                            Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () => _navegarParaPerfilAmigo(post),
+                                borderRadius: BorderRadius.circular(25),
+                                child: Container(
+                                  width: 60,
+                                  height: 60,
+                                  child: Stack(
+                                    alignment: Alignment.center,
+                                    children: [
+                                      // Imagem de perfil ou ícone
+                                      if (post.selectedFrame != null && post.selectedFrame != 'assets/frame_none.png')
                                     // Com moldura
                                     Stack(
                                       alignment: Alignment.center,
@@ -920,8 +940,8 @@ void _mostrarModalComentarios(Post post) async {
                                         ClipPath(
                                           clipper: MolduraClipper(post.selectedFrame!),
                                           child: Container(
-                                            width: 44,
-                                            height: 44,
+                                            width: 54,
+                                            height: 54,
                                             decoration: BoxDecoration(
                                               shape: BoxShape.circle,
                                               image: post.avatarUrl != null && post.avatarUrl!.isNotEmpty
@@ -944,8 +964,8 @@ void _mostrarModalComentarios(Post post) async {
                                         // Moldura
                                         Image.asset(
                                           post.selectedFrame!,
-                                          width: 50,
-                                          height: 50,
+                                          width: 60,
+                                          height: 60,
                                           fit: BoxFit.contain,
                                         ),
                                       ],
@@ -953,8 +973,8 @@ void _mostrarModalComentarios(Post post) async {
                                   else
                                     // Sem moldura
                                     Container(
-                                      width: 44,
-                                      height: 44,
+                                      width: 54,
+                                      height: 54,
                                       decoration: BoxDecoration(
                                         shape: BoxShape.circle,
                                         image: post.avatarUrl != null && post.avatarUrl!.isNotEmpty
@@ -975,19 +995,24 @@ void _mostrarModalComentarios(Post post) async {
                                     ),
                                 ],
                               ),
+                                ),
+                              ),
                             ),
                             const SizedBox(width: 10),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    (post.displayName == null || post.displayName!.trim().isEmpty)
-                                        ? (post.username?.trim().isEmpty ?? true ? 'Anonymous' : post.username ?? 'user')
-                                        : post.displayName!,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 14,
+                                  GestureDetector(
+                                    onTap: () => _navegarParaPerfilAmigo(post),
+                                    child: Text(
+                                      (post.displayName == null || post.displayName!.trim().isEmpty)
+                                          ? (post.username?.trim().isEmpty ?? true ? 'Anonymous' : post.username ?? 'user')
+                                          : post.displayName!,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                      ),
                                     ),
                                   ),
                                   Text(
@@ -1283,7 +1308,7 @@ class MolduraClipper extends CustomClipper<Path> {
     return Path()
       ..addOval(Rect.fromCircle(
         center: Offset(size.width / 2, size.height / 2),
-        radius: (size.width - 6) / 2, // Ligeiramente menor que a moldura
+        radius: (size.width - 6) / 2, // Margem ajustada para o novo tamanho
       ));
   }
 

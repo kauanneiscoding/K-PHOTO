@@ -67,7 +67,7 @@ class _BinderViewPageState extends State<BinderViewPage>
       vsync: this,
       duration: const Duration(milliseconds: 300),
     );
-    _animation = Tween<double>(begin: 0, end: 0).animate(
+    _animation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
     );
 
