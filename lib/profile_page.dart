@@ -531,7 +531,7 @@ Future<void> _pickImage() async {
       child: Stack(
         alignment: Alignment.center,
         children: [
-          if (selectedFrame == 0)
+          if (selectedFrame == 'assets/frame_none.png')
             // Imagem circular sem moldura, mas com mesmo tamanho
             Container(
               width: 110, // Mesmo tamanho da imagem com moldura

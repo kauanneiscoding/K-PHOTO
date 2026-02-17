@@ -111,6 +111,21 @@ class CurrencyService {
     await prefs.setInt(_lastRewardAmountKey, amount);
   }
 
+  static Future<bool> hasEnoughStarCoins(int amount) async {
+    if (_dataStorageService == null) return false;
+    final balance = await _dataStorageService!.getBalance();
+    return balance['star_coins']! >= amount;
+  }
+
+  static Future<void> spendStarCoins(int amount) async {
+    if (_dataStorageService == null) return;
+    final balance = await _dataStorageService!.getBalance();
+    final currentBalance = balance['star_coins']!;
+    if (currentBalance >= amount) {
+      await _dataStorageService!.updateStarCoins(currentBalance - amount);
+    }
+  }
+
   static Future<void> addStarCoins(int amount) async {
     if (_dataStorageService == null) return;
     final balance = await _dataStorageService!.getBalance();

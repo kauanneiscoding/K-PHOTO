@@ -933,43 +933,46 @@ void _mostrarModalComentarios(Post post) async {
                                       // Imagem de perfil ou ícone
                                       if (post.selectedFrame != null && post.selectedFrame != 'assets/frame_none.png')
                                     // Com moldura
-                                    Stack(
-                                      alignment: Alignment.center,
-                                      children: [
-                                        // Imagem de perfil recortada
-                                        ClipPath(
-                                          clipper: MolduraClipper(post.selectedFrame!),
-                                          child: Container(
-                                            width: 54,
-                                            height: 54,
-                                            decoration: BoxDecoration(
-                                              shape: BoxShape.circle,
-                                              image: post.avatarUrl != null && post.avatarUrl!.isNotEmpty
-                                                  ? DecorationImage(
-                                                      image: post.avatarUrl!.startsWith('http')
-                                                          ? NetworkImage(post.avatarUrl!) as ImageProvider
-                                                          : FileImage(File(post.avatarUrl!)) as ImageProvider,
-                                                      fit: BoxFit.cover,
-                                                    )
-                                                  : null,
-                                              color: (post.avatarUrl == null || post.avatarUrl!.isEmpty) 
-                                                  ? Colors.grey[200] 
+                                      Stack(
+                                        alignment: Alignment.center,
+                                        children: [
+                                          // Imagem de perfil recortada
+                                          ClipPath(
+                                            clipper: MolduraClipper(post.selectedFrame!),
+                                            child: Container(
+                                              width: 53, // Ajustado para ficar igual ao sem moldura
+                                              height: 53, // Ajustado para ficar igual ao sem moldura
+                                              decoration: BoxDecoration(
+                                                shape: BoxShape.circle,
+                                                image: post.avatarUrl != null && post.avatarUrl!.isNotEmpty
+                                                    ? DecorationImage(
+                                                        image: post.avatarUrl!.startsWith('http')
+                                                            ? NetworkImage(post.avatarUrl!) as ImageProvider
+                                                            : FileImage(File(post.avatarUrl!)) as ImageProvider,
+                                                        fit: BoxFit.cover,
+                                                      )
+                                                    : null,
+                                                color: (post.avatarUrl == null || post.avatarUrl!.isEmpty) 
+                                                    ? Colors.grey[200] 
+                                                    : null,
+                                              ),
+                                              child: (post.avatarUrl == null || post.avatarUrl!.isEmpty)
+                                                  ? Icon(Icons.person, color: Colors.pink[300], size: 22)
                                                   : null,
                                             ),
-                                            child: (post.avatarUrl == null || post.avatarUrl!.isEmpty)
-                                                ? Icon(Icons.person, color: Colors.pink[300], size: 22)
-                                                : null,
                                           ),
-                                        ),
-                                        // Moldura
-                                        Image.asset(
-                                          post.selectedFrame!,
-                                          width: 60,
-                                          height: 60,
-                                          fit: BoxFit.contain,
-                                        ),
-                                      ],
-                                    )
+                                          // Moldura com escala ajustada
+                                          Transform.scale(
+                                            scale: 1.12, // Amplia a moldura para compensar o tamanho maior da imagem
+                                            child: Image.asset(
+                                              post.selectedFrame!,
+                                              width: 60,
+                                              height: 60,
+                                              fit: BoxFit.contain,
+                                            ),
+                                          ),
+                                        ],
+                                      )
                                   else
                                     // Sem moldura
                                     Container(
@@ -1308,7 +1311,7 @@ class MolduraClipper extends CustomClipper<Path> {
     return Path()
       ..addOval(Rect.fromCircle(
         center: Offset(size.width / 2, size.height / 2),
-        radius: (size.width - 6) / 2, // Margem ajustada para o novo tamanho
+        radius: (size.width - 3) / 2, // Ajustado para o novo tamanho da imagem (54)
       ));
   }
 

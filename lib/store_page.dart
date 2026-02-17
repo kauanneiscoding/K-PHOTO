@@ -120,6 +120,11 @@ class _StorePageState extends State<StorePage> {
                               ),
                               itemCount: 6,
                               itemBuilder: (context, index) {
+                                // Calcular preço: 50 star-coins para molduras 1, 4, 5; 100*(index+1) k-coins para outras
+                                final frameNumber = index + 1;
+                                final useStarCoins = (frameNumber == 1 || frameNumber == 4 || frameNumber == 5);
+                                final price = useStarCoins ? 50 : (100 * frameNumber);
+                                
                                 return FutureBuilder<bool>(
                                   future: FrameService
                                       .isFramePurchased(
@@ -151,13 +156,13 @@ class _StorePageState extends State<StorePage> {
                                                   MainAxisAlignment.center,
                                               children: [
                                                 Image.asset(
-                                                  'assets/kcoin.png',
+                                                  useStarCoins ? 'assets/starcoin.png' : 'assets/kcoin.png',
                                                   width: 20,
                                                   height: 20,
                                                 ),
                                                 SizedBox(width: 4),
                                                 Text(
-                                                  '${100 * (index + 1)}',
+                                                  '$price',
                                                   style: TextStyle(
                                                     fontWeight: FontWeight.bold,
                                                     color: Colors.pink[300],
@@ -167,9 +172,9 @@ class _StorePageState extends State<StorePage> {
                                             ),
                                             ElevatedButton(
                                               onPressed: () async {
-                                                if (await CurrencyService
-                                                    .hasEnoughKCoins(
-                                                        100 * (index + 1))) {
+                                                if (await (useStarCoins 
+                                                    ? CurrencyService.hasEnoughStarCoins(price)
+                                                    : CurrencyService.hasEnoughKCoins(price))) {
                                                   showDialog(
                                                     context: context,
                                                     builder:
@@ -178,7 +183,7 @@ class _StorePageState extends State<StorePage> {
                                                         title: Text(
                                                             'Confirmar compra'),
                                                         content: Text(
-                                                            'Deseja comprar esta moldura por ${100 * (index + 1)} K-coins?'),
+                                                            'Deseja comprar esta moldura por $price ${useStarCoins ? "star-coins" : "k-coins"}?'),
                                                         actions: [
                                                           TextButton(
                                                             onPressed: () {
@@ -191,10 +196,11 @@ class _StorePageState extends State<StorePage> {
                                                           ElevatedButton(
                                                             onPressed:
                                                                 () async {
-                                                              await CurrencyService
-                                                                  .spendKCoins(100 *
-                                                                      (index +
-                                                                          1));
+                                                              if (useStarCoins) {
+                                                                  await CurrencyService.spendStarCoins(price);
+                                                                } else {
+                                                                  await CurrencyService.spendKCoins(price);
+                                                                }
                                                               await FrameService
                                                                   .purchaseFrame(
                                                                       'assets/frame/frame_${index + 1}.png');
