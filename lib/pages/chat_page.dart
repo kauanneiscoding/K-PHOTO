@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:k_photo/widgets/avatar_with_frame.dart';
+import 'package:k_photo/services/chat_service.dart';
 import 'package:intl/intl.dart';
 
 class ChatPage extends StatefulWidget {
@@ -27,6 +28,7 @@ class _ChatPageState extends State<ChatPage> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final SupabaseClient _supabase = Supabase.instance.client;
+  final ChatService _chatService = ChatService();
   
   List<Map<String, dynamic>> _messages = [];
   bool _isLoading = true;
@@ -48,18 +50,11 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _loadMessages() async {
     try {
-      final currentUserId = _supabase.auth.currentUser?.id;
-      if (currentUserId == null) return;
-
-      final response = await _supabase
-          .from('messages')
-          .select('*')
-          .or('and(sender_id.eq.$currentUserId,receiver_id.eq.${widget.friendUserId}),and(sender_id.eq.${widget.friendUserId},receiver_id.eq.$currentUserId)')
-          .order('created_at', ascending: true);
+      final response = await _chatService.getMessages(widget.friendUserId);
 
       if (mounted) {
         setState(() {
-          _messages = List<Map<String, dynamic>>.from(response);
+          _messages = response;
           _isLoading = false;
         });
         _scrollToBottom();
@@ -74,15 +69,7 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _markMessagesAsRead() async {
     try {
-      final currentUserId = _supabase.auth.currentUser?.id;
-      if (currentUserId == null) return;
-
-      await _supabase
-          .from('messages')
-          .update({'read_at': DateTime.now().toIso8601String()})
-          .eq('sender_id', widget.friendUserId)
-          .eq('receiver_id', currentUserId)
-          .is_('read_at', 'null');
+      await _chatService.markMessagesAsRead(widget.friendUserId);
     } catch (e) {
       debugPrint('❌ Erro ao marcar mensagens como lidas: $e');
     }
@@ -92,28 +79,14 @@ class _ChatPageState extends State<ChatPage> {
     final messageText = _messageController.text.trim();
     if (messageText.isEmpty || _isSending) return;
 
-    final currentUserId = _supabase.auth.currentUser?.id;
-    if (currentUserId == null) return;
-
     setState(() => _isSending = true);
 
     try {
-      final messageData = {
-        'sender_id': currentUserId,
-        'receiver_id': widget.friendUserId,
-        'content': messageText,
-        'created_at': DateTime.now().toIso8601String(),
-      };
-
-      final response = await _supabase
-          .from('messages')
-          .insert(messageData)
-          .select()
-          .single();
+      final message = await _chatService.sendMessage(widget.friendUserId, messageText);
 
       if (mounted) {
         setState(() {
-          _messages.add(response);
+          _messages.add(message);
           _messageController.clear();
         });
         _scrollToBottom();

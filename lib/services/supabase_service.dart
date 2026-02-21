@@ -997,6 +997,43 @@ class SupabaseService {
     return List<Map<String, dynamic>>.from(detailsResponse);
   }
 
+/// Verificar se existe solicitação pendente e aceitar automaticamente
+  Future<void> acceptPendingFriendRequest(String senderId) async {
+    final user = _client.auth.currentUser;
+    if (user == null) throw Exception('Usuário não autenticado');
+
+    // Verificar se existe solicitação pendente do senderId para o usuário atual
+    final existingRequest = await _client
+        .from('friend_requests')
+        .select('id, sender_id')
+        .eq('sender_id', senderId)
+        .eq('receiver_id', user.id)
+        .eq('status', 'pending')
+        .maybeSingle();
+
+    if (existingRequest != null) {
+      // Aceitar a solicitação existente
+      await acceptFriendRequest(existingRequest['id'], senderId);
+    } else {
+      // Não há solicitação pendente, lançar exceção para que o chamador envie nova solicitação
+      throw Exception('Nenhuma solicitação pendente encontrada');
+    }
+  }
+
+/// Verificar se dois usuários são amigos
+  Future<bool> isFriend(String userId) async {
+    final user = _client.auth.currentUser;
+    if (user == null) return false;
+
+    final response = await _client
+        .from('friends')
+        .select('id')
+        .or('and(user1_id.eq.${user.id},user2_id.eq.$userId),and(user1_id.eq.$userId,user2_id.eq.${user.id})')
+        .maybeSingle();
+
+    return response != null;
+  }
+
 /// Desfazer amizade
 Future<void> unfriendUser(String friendId) async {
   final user = _client.auth.currentUser;

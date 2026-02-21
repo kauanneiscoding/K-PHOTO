@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:k_photo/services/supabase_service.dart';
 import 'package:k_photo/widgets/avatar_with_frame.dart';
 import 'package:k_photo/pages/friend_profile_page.dart';
+import 'package:k_photo/pages/chat_page.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class FriendPage extends StatefulWidget {
@@ -362,7 +363,32 @@ class _FriendPageState extends State<FriendPage> {
                 fontWeight: isOnline ? FontWeight.bold : FontWeight.normal,
               ),
             ),
-            trailing: Icon(Icons.chevron_right, color: Colors.grey[400]),
+            trailing: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: Colors.pink[50],
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: IconButton(
+                icon: Icon(Icons.chat_bubble_outline, color: Colors.pink[400], size: 20),
+                padding: EdgeInsets.zero,
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ChatPage(
+                        friendUserId: friend['user_id'],
+                        friendUsername: friend['username'],
+                        friendDisplayName: friend['display_name'],
+                        friendAvatarUrl: friend['avatar_url'],
+                        friendSelectedFrame: friend['selected_frame'],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
           ),
         );
       }).toList(),
@@ -412,10 +438,23 @@ class _FriendPageState extends State<FriendPage> {
               borderRadius: BorderRadius.circular(12),
             ),
             child: ListTile(
-              leading: AvatarWithFrame(
-                imageUrl: req['sender_avatar_url'],
-                framePath: req['selected_frame'] ?? 'assets/frame_none.png',
-                size: 42,
+              leading: GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => FriendProfilePage(
+                        friendUserId: req['sender_id'],
+                        friendUsername: req['username'],
+                      ),
+                    ),
+                  );
+                },
+                child: AvatarWithFrame(
+                  imageUrl: req['avatar_url'],
+                  framePath: req['selected_frame'] ?? 'assets/frame_none.png',
+                  size: 42,
+                ),
               ),
               title: Text(
                 '@${req['username']}',
