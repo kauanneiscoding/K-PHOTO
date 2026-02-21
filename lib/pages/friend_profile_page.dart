@@ -179,15 +179,11 @@ class _FriendProfilePageState extends State<FriendProfilePage> {
   }
 
   Future<void> _addFriend() async {
-    debugPrint('🔍 Iniciando _addFriend para usuário: ${widget.friendUserId}');
-    
     try {
       // Primeiro, tentar aceitar solicitação pendente existente
-      debugPrint('📨 Tentando aceitar solicitação pendente...');
       await _supabaseService.acceptPendingFriendRequest(widget.friendUserId);
       
       if (mounted) {
-        debugPrint('✅ Solicitação pendente aceita com sucesso!');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
@@ -205,14 +201,11 @@ class _FriendProfilePageState extends State<FriendProfilePage> {
         setState(() => _isFriend = true);
       }
     } catch (e) {
-      debugPrint('⚠️ Erro ao aceitar solicitação pendente: $e');
       // Se não houver solicitação pendente, enviar nova solicitação
       try {
-        debugPrint('📤 Enviando nova solicitação de amizade...');
         await _supabaseService.sendFriendRequest(widget.friendUserId);
         
         if (mounted) {
-          debugPrint('✅ Nova solicitação enviada com sucesso!');
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Row(
@@ -230,7 +223,6 @@ class _FriendProfilePageState extends State<FriendProfilePage> {
           setState(() => _isFriend = true);
         }
       } catch (sendError) {
-        debugPrint('❌ Erro ao enviar nova solicitação: $sendError');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -265,55 +257,158 @@ class _FriendProfilePageState extends State<FriendProfilePage> {
   }
 
   Future<void> _unfriendUser() async {
-    // Mostra diálogo de confirmação
+    // Mostra diálogo de confirmação bonito e fofo
     final bool? confirmUnfriend = await showDialog<bool>(
       context: context,
+      barrierDismissible: false, // Impede fechar clicando fora
       builder: (BuildContext context) {
-        return AlertDialog(
-          title: Row(
-            children: [
-              Icon(
-                Icons.warning_amber_rounded,
-                color: Colors.orange[600],
-                size: 24,
-              ),
-              const SizedBox(width: 8),
-              const Text('Desfazer Amizade'),
-            ],
-          ),
-          content: Text(
-            'Tem certeza que deseja desfazer a amizade com ${_displayName?.isNotEmpty == true ? _displayName! : widget.friendUsername}?\n\nVocê poderá se tornar amigo novamente no futuro.',
-            style: const TextStyle(fontSize: 16),
-          ),
+        return Dialog(
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(20),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: Text(
-                'Cancelar',
-                style: TextStyle(
-                  color: Colors.grey[600],
-                  fontWeight: FontWeight.w500,
-                ),
+          elevation: 10,
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Colors.pink.shade50,
+                  Colors.purple.shade50,
+                  Colors.blue.shade50,
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
+              borderRadius: BorderRadius.circular(20),
             ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red[400],
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Ícone animado
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Colors.orange.shade300, Colors.red.shade400],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(50),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.orange.shade300.withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    Icons.favorite_border_rounded,
+                    color: Colors.white,
+                    size: 32,
+                  ),
                 ),
-              ),
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text(
-                'Desfazer Amizade',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
+                const SizedBox(height: 16),
+                // Título
+                Text(
+                  'Desfazer Amizade? 💔',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.pink.shade700,
+                    fontFamily: 'Nunito',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // Mensagem
+                Text(
+                  'Tem certeza que deseja desfazer a amizade com ${_displayName?.isNotEmpty == true ? _displayName! : widget.friendUsername}?\n\nVocê poderá se tornar amigo novamente no futuro. 💕',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: Colors.grey.shade700,
+                    height: 1.4,
+                    fontFamily: 'Nunito',
+                  ),
+                ),
+                const SizedBox(height: 24),
+                // Botões
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    // Botão Cancelar
+                    Expanded(
+                      child: Container(
+                        height: 45,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [Colors.grey.shade200, Colors.grey.shade300],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(25),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.grey.shade300.withOpacity(0.2),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: TextButton(
+                          onPressed: () => Navigator.of(context).pop(false),
+                          child: Text(
+                            'Cancelar',
+                            style: TextStyle(
+                              color: Colors.grey.shade700,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                              fontFamily: 'Nunito',
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    // Botão Desfazer
+                    Expanded(
+                      child: Container(
+                        height: 45,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [Colors.red.shade400, Colors.pink.shade500],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(25),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.red.shade400.withOpacity(0.3),
+                              blurRadius: 8,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: TextButton(
+                          onPressed: () => Navigator.of(context).pop(true),
+                          child: Text(
+                            'Desfazer 💔',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 15,
+                              fontFamily: 'Nunito',
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-          ],
+          ),
         );
       },
     );
@@ -454,127 +549,135 @@ class _FriendProfilePageState extends State<FriendProfilePage> {
                         Column(
                           children: [
                             // Primeira linha: Enviar Mensagem
-                            SizedBox(
+                            Container(
                               width: double.infinity,
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    Colors.pink.shade300,
+                                    Colors.pink.shade500,
+                                    Colors.purple.shade400,
+                                  ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                                borderRadius: BorderRadius.circular(25),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.pink.shade300.withOpacity(0.3),
+                                    blurRadius: 12,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
                               child: ElevatedButton.icon(
                                 onPressed: _openChat,
                                 icon: Icon(
-                                  Icons.chat_bubble_outline,
+                                  Icons.chat_bubble_outline_rounded,
                                   color: Colors.white,
-                                  size: 18,
+                                  size: 20,
                                 ),
                                 label: Text(
-                                  'Enviar Mensagem',
+                                  'Enviar Mensagem 💬',
                                   style: TextStyle(
                                     color: Colors.white,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700,
                                     fontFamily: 'Nunito',
                                   ),
                                 ),
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.pink.shade400,
+                                  backgroundColor: Colors.transparent,
                                   foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                  shadowColor: Colors.transparent,
+                                  elevation: 0,
+                                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(25),
                                   ),
-                                  elevation: 3,
-                                  shadowColor: Colors.pink.shade300,
                                 ),
                               ),
                             ),
                             const SizedBox(height: 12),
                             // Segunda linha: Adicionar/Desfazer Amizade
-                            SizedBox(
+                            Container(
                               width: double.infinity,
-                              child: _isCheckingFriendship
-                                  ? ElevatedButton.icon(
-                                      onPressed: null,
-                                      icon: SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                      label: Text(
-                                        'Verificando...',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w600,
-                                          fontFamily: 'Nunito',
-                                        ),
-                                      ),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.grey[400],
-                                        foregroundColor: Colors.white,
-                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(25),
-                                        ),
-                                        elevation: 3,
-                                        shadowColor: Colors.grey[300],
-                                      ),
-                                    )
-                                  : _isFriend
-                                      ? ElevatedButton.icon(
-                                          onPressed: _unfriendUser,
-                                          icon: Icon(
-                                            Icons.person_remove_rounded,
-                                            color: Colors.white,
-                                            size: 18,
+                              decoration: BoxDecoration(
+                                gradient: _isCheckingFriendship
+                                    ? LinearGradient(
+                                        colors: [Colors.grey.shade300, Colors.grey.shade500],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      )
+                                    : _isFriend
+                                        ? LinearGradient(
+                                            colors: [
+                                              Colors.red.shade300,
+                                              Colors.red.shade500,
+                                              Colors.orange.shade400,
+                                            ],
+                                            begin: Alignment.topLeft,
+                                            end: Alignment.bottomRight,
+                                          )
+                                        : LinearGradient(
+                                            colors: [
+                                              Colors.green.shade300,
+                                              Colors.green.shade500,
+                                              Colors.teal.shade400,
+                                            ],
+                                            begin: Alignment.topLeft,
+                                            end: Alignment.bottomRight,
                                           ),
-                                          label: Text(
-                                            'Desfazer Amizade',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w600,
-                                              fontFamily: 'Nunito',
-                                            ),
-                                          ),
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: Colors.red.shade400,
-                                            foregroundColor: Colors.white,
-                                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius: BorderRadius.circular(25),
-                                            ),
-                                            elevation: 3,
-                                            shadowColor: Colors.red.shade300,
-                                          ),
-                                        )
-                                      : ElevatedButton.icon(
-                                          onPressed: _addFriend,
-                                          icon: Icon(
-                                            Icons.person_add_rounded,
-                                            color: Colors.white,
-                                            size: 18,
-                                          ),
-                                          label: Text(
-                                            'Adicionar Amigo',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w600,
-                                              fontFamily: 'Nunito',
-                                            ),
-                                          ),
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: Colors.green.shade400,
-                                            foregroundColor: Colors.white,
-                                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius: BorderRadius.circular(25),
-                                            ),
-                                            elevation: 3,
-                                            shadowColor: Colors.green.shade300,
-                                          ),
-                                        ),
-                                    ),
+                                borderRadius: BorderRadius.circular(25),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: (_isCheckingFriendship
+                                            ? Colors.grey.shade300
+                                            : _isFriend
+                                                ? Colors.red.shade300
+                                                : Colors.green.shade300)
+                                        .withOpacity(0.3),
+                                    blurRadius: 12,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: ElevatedButton.icon(
+                                onPressed: _isCheckingFriendship ? null : (_isFriend ? _unfriendUser : _addFriend),
+                                icon: Icon(
+                                  _isCheckingFriendship
+                                      ? Icons.hourglass_empty
+                                      : _isFriend
+                                          ? Icons.person_remove_rounded
+                                          : Icons.favorite_rounded,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                                label: Text(
+                                  _isCheckingFriendship
+                                      ? 'Verificando... ✨'
+                                      : _isFriend
+                                          ? 'Desfazer Amizade'
+                                          : 'Adicionar Amigo 💕',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700,
+                                    fontFamily: 'Nunito',
+                                  ),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.transparent,
+                                  foregroundColor: Colors.white,
+                                  shadowColor: Colors.transparent,
+                                  elevation: 0,
+                                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(25),
+                                  ),
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                         const SizedBox(height: 34),
