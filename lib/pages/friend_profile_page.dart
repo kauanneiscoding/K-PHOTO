@@ -931,28 +931,6 @@ class _FriendProfilePageState extends State<FriendProfilePage> {
       ),
     );
 
-    // Add message button
-    stackChildren.add(
-      Positioned(
-        right: 16,
-        top: MediaQuery.of(context).padding.top + 16,
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.3),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: IconButton(
-            icon: Icon(
-              Icons.chat_bubble_outline,
-              color: Colors.white,
-              size: 20,
-            ),
-            onPressed: _openChat,
-          ),
-        ),
-      ),
-    );
-
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent,

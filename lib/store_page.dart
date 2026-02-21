@@ -19,7 +19,9 @@ class StorePage extends StatefulWidget {
 
 class _StorePageState extends State<StorePage> {
   List<String>? _revealedPhotocards;
-  late Future<List<String>> _framesFuture;
+  List<String> _ownedFrames = []; // 1️⃣ Lista local para molduras compradas
+  late BuildContext _pageContext; // Referência segura ao contexto da página
+  int _gridKey = 0; // Chave numérica para forçar reconstrução
 
   @override
   void initState() {
@@ -29,11 +31,22 @@ class _StorePageState extends State<StorePage> {
     if (userId != null) {
       FrameService.setCurrentUserId(userId);
     }
-    _framesFuture = FrameService.getPurchasedFrames();
+    _loadFrames(); // 2️⃣ Carrega as molduras compradas
+  }
+
+  Future<void> _loadFrames() async {
+    print('StorePage: Carregando molduras compradas...');
+    final frames = await FrameService.getPurchasedFrames();
+    print('StorePage: ${frames.length} molduras encontradas no banco');
+    setState(() {
+      _ownedFrames = frames;
+      print('StorePage: Lista local atualizada com ${_ownedFrames.length} itens: $_ownedFrames');
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    _pageContext = context; // Salva referência segura ao contexto
     return Scaffold(
       body: SingleChildScrollView(
         child: Padding(
@@ -105,192 +118,14 @@ class _StorePageState extends State<StorePage> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => Scaffold(
-                            appBar: AppBar(
-                              title: Text('Loja de Molduras'),
-                            ),
-                            body: GridView.builder(
-                              padding: EdgeInsets.all(16),
-                              gridDelegate:
-                                  SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 2,
-                                childAspectRatio: 1,
-                                crossAxisSpacing: 16,
-                                mainAxisSpacing: 16,
-                              ),
-                              itemCount: 6,
-                              itemBuilder: (context, index) {
-                                // Calcular preço: 50 star-coins para molduras 1, 4, 5; 100*(index+1) k-coins para outras
-                                final frameNumber = index + 1;
-                                final useStarCoins = (frameNumber == 1 || frameNumber == 4 || frameNumber == 5);
-                                final price = useStarCoins ? 50 : (100 * frameNumber);
-                                
-                                return FutureBuilder<bool>(
-                                  future: FrameService
-                                      .isFramePurchased(
-                                          'assets/frame/frame_${index + 1}.png'),
-                                  builder: (context, snapshot) {
-                                    final bool isPurchased =
-                                        snapshot.data ?? false;
-
-                                    return Container(
-                                      decoration: BoxDecoration(
-                                        border: Border.all(
-                                            color: Colors.grey[300]!),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Column(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.center,
-                                        children: [
-                                          Image.asset(
-                                            'assets/frame/frame_${index + 1}.png',
-                                            width: 80,
-                                            height: 80,
-                                            fit: BoxFit.contain,
-                                          ),
-                                          SizedBox(height: 8),
-                                          if (!isPurchased) ...[
-                                            Row(
-                                              mainAxisAlignment:
-                                                  MainAxisAlignment.center,
-                                              children: [
-                                                Image.asset(
-                                                  useStarCoins ? 'assets/starcoin.png' : 'assets/kcoin.png',
-                                                  width: 20,
-                                                  height: 20,
-                                                ),
-                                                SizedBox(width: 4),
-                                                Text(
-                                                  '$price',
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.bold,
-                                                    color: Colors.pink[300],
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                            ElevatedButton(
-                                              onPressed: () async {
-                                                if (await (useStarCoins 
-                                                    ? CurrencyService.hasEnoughStarCoins(price)
-                                                    : CurrencyService.hasEnoughKCoins(price))) {
-                                                  showDialog(
-                                                    context: context,
-                                                    builder:
-                                                        (BuildContext context) {
-                                                      return AlertDialog(
-                                                        title: Text(
-                                                            'Confirmar compra'),
-                                                        content: Text(
-                                                            'Deseja comprar esta moldura por $price ${useStarCoins ? "star-coins" : "k-coins"}?'),
-                                                        actions: [
-                                                          TextButton(
-                                                            onPressed: () {
-                                                              Navigator.pop(
-                                                                  context);
-                                                            },
-                                                            child: Text(
-                                                                'Cancelar'),
-                                                          ),
-                                                          ElevatedButton(
-                                                            onPressed:
-                                                                () async {
-                                                              if (useStarCoins) {
-                                                                  await CurrencyService.spendStarCoins(price);
-                                                                } else {
-                                                                  await CurrencyService.spendKCoins(price);
-                                                                }
-                                                              await FrameService
-                                                                  .purchaseFrame(
-                                                                      'assets/frame/frame_${index + 1}.png');
-
-                                                              // Fecha o diálogo de confirmação
-                                                              Navigator.pop(
-                                                                  context);
-
-                                                              // Força uma reconstrução do FutureBuilder
-                                                              if (mounted) {
-                                                                setState(() {
-                                                                  // Atualiza o Future para recarregar o estado das molduras
-                                                                  _framesFuture = FrameService.getPurchasedFrames();
-                                                                });
-                                                              }
-
-                                                              ScaffoldMessenger
-                                                                      .of(context)
-                                                                  .showSnackBar(
-                                                                SnackBar(
-                                                                  content: Text(
-                                                                      'Moldura comprada com sucesso!'),
-                                                                  backgroundColor:
-                                                                      Colors
-                                                                          .green,
-                                                                ),
-                                                              );
-                                                            },
-                                                            style:
-                                                                ElevatedButton
-                                                                    .styleFrom(
-                                                              backgroundColor:
-                                                                  Colors.pink[
-                                                                      300],
-                                                            ),
-                                                            child: Text(
-                                                                'Confirmar'),
-                                                          ),
-                                                        ],
-                                                      );
-                                                    },
-                                                  );
-                                                } else {
-                                                  ScaffoldMessenger.of(context)
-                                                      .showSnackBar(
-                                                    SnackBar(
-                                                      content: Text(
-                                                          'Saldo insuficiente!'),
-                                                      backgroundColor:
-                                                          Colors.red,
-                                                    ),
-                                                  );
-                                                }
-                                              },
-                                              style: ElevatedButton.styleFrom(
-                                                backgroundColor:
-                                                    Colors.pink[300],
-                                                padding: EdgeInsets.symmetric(
-                                                    horizontal: 16),
-                                              ),
-                                              child: Text(
-                                                'Comprar',
-                                                style: TextStyle(
-                                                    color: Colors.white),
-                                              ),
-                                            ),
-                                          ] else
-                                            Container(
-                                              padding: EdgeInsets.symmetric(
-                                                  horizontal: 16, vertical: 8),
-                                              decoration: BoxDecoration(
-                                                color: Colors.green[100],
-                                                borderRadius:
-                                                    BorderRadius.circular(20),
-                                              ),
-                                              child: Text(
-                                                'Obtido',
-                                                style: TextStyle(
-                                                  color: Colors.green,
-                                                  fontWeight: FontWeight.bold,
-                                                ),
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    );
-                                  },
-                                );
-                              },
-                            ),
+                          builder: (context) => FramesShopPage(
+                            ownedFrames: _ownedFrames,
+                            onFramePurchased: (framePath) {
+                              setState(() {
+                                _ownedFrames.add(framePath);
+                                _gridKey++;
+                              });
+                            },
                           ),
                         ),
                       );
@@ -330,6 +165,48 @@ class _StorePageState extends State<StorePage> {
       setState(() {
         // Força uma reconstrução do widget
       });
+    }
+  }
+
+  // Método auxiliar para processar compra de moldura
+  Future<void> _purchaseFrame(int frameIndex, int price, bool useStarCoins, BuildContext context) async {
+    try {
+      // 1. Salva no banco
+      if (useStarCoins) {
+        await CurrencyService.spendStarCoins(price);
+      } else {
+        await CurrencyService.spendKCoins(price);
+      }
+      
+      await FrameService.purchaseFrame('assets/frame/frame_${frameIndex + 1}.png');
+
+      // 4️⃣ Quando comprar: atualiza a lista local diretamente
+      if (mounted) {
+        setState(() {
+          _ownedFrames.add('assets/frame/frame_${frameIndex + 1}.png');
+          _gridKey++; // Incrementa chave para forçar reconstrução do GridView
+        });
+      }
+
+      // Verificação segura antes de usar o ScaffoldMessenger
+      if (mounted && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Moldura comprada com sucesso!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      // Verificação segura antes de mostrar erro
+      if (mounted && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao comprar moldura: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 }
@@ -759,6 +636,199 @@ class _RevealDialogState extends State<RevealDialog> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// Página separada para a loja de molduras
+class FramesShopPage extends StatefulWidget {
+  final List<String> ownedFrames;
+  final Function(String) onFramePurchased;
+
+  const FramesShopPage({
+    Key? key,
+    required this.ownedFrames,
+    required this.onFramePurchased,
+  }) : super(key: key);
+
+  @override
+  State<FramesShopPage> createState() => _FramesShopPageState();
+}
+
+class _FramesShopPageState extends State<FramesShopPage> {
+  int _gridKey = 0;
+
+  Future<void> _purchaseFrame(int frameIndex, int price, bool useStarCoins, BuildContext context) async {
+    try {
+      // 1. Salva no banco
+      if (useStarCoins) {
+        await CurrencyService.spendStarCoins(price);
+      } else {
+        await CurrencyService.spendKCoins(price);
+      }
+      
+      await FrameService.purchaseFrame('assets/frame/frame_${frameIndex + 1}.png');
+
+      // 2. Atualiza estado local e notifica página principal
+      if (mounted) {
+        setState(() {
+          _gridKey++;
+        });
+        
+        // Notifica a StorePage sobre a compra
+        widget.onFramePurchased('assets/frame/frame_${frameIndex + 1}.png');
+      }
+
+      // Verificação segura antes de usar o ScaffoldMessenger
+      if (mounted && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Moldura comprada com sucesso!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao comprar moldura: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Loja de Molduras'),
+      ),
+      body: GridView.builder(
+        key: ValueKey(_gridKey), // Força reconstrução com chave numérica
+        padding: EdgeInsets.all(16),
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          childAspectRatio: 1,
+          crossAxisSpacing: 16,
+          mainAxisSpacing: 16,
+        ),
+        itemCount: 9,
+        itemBuilder: (context, index) {
+          // Calcular preço: 50 star-coins para molduras 1, 4, 5; 100*(index+1) k-coins para outras
+          final frameNumber = index + 1;
+          final useStarCoins = (frameNumber == 1 || frameNumber == 4 || frameNumber == 5);
+          final price = useStarCoins ? 50 : (100 * frameNumber);
+          
+          // Verificação direta na lista local
+          bool isPurchased = widget.ownedFrames.contains(
+            'assets/frame/frame_${index + 1}.png'
+          );
+          
+          return Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey[300]!),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Image.asset(
+                  'assets/frame/frame_${index + 1}.png',
+                  width: 80,
+                  height: 80,
+                  fit: BoxFit.contain,
+                ),
+                SizedBox(height: 8),
+                if (!isPurchased) ...[
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Image.asset(
+                        useStarCoins ? 'assets/starcoin.png' : 'assets/kcoin.png',
+                        width: 20,
+                        height: 20,
+                      ),
+                      SizedBox(width: 4),
+                      Text(
+                        '$price',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.pink[300],
+                        ),
+                      ),
+                    ],
+                  ),
+                  ElevatedButton(
+                    onPressed: () async {
+                      if (await (useStarCoins 
+                          ? CurrencyService.hasEnoughStarCoins(price)
+                          : CurrencyService.hasEnoughKCoins(price))) {
+                        showDialog(
+                          context: context,
+                          builder: (BuildContext context) {
+                            return AlertDialog(
+                              title: Text('Confirmar compra'),
+                              content: Text('Deseja comprar esta moldura por $price ${useStarCoins ? "star-coins" : "k-coins"}?'),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(context),
+                                  child: Text('Cancelar'),
+                                ),
+                                ElevatedButton(
+                                  onPressed: () async {
+                                    Navigator.pop(context);
+                                    await _purchaseFrame(index, price, useStarCoins, context);
+                                  },
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.pink[300],
+                                  ),
+                                  child: Text('Confirmar'),
+                                ),
+                              ],
+                            );
+                          },
+                        );
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Saldo insuficiente!'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.pink[300],
+                      padding: EdgeInsets.symmetric(horizontal: 16),
+                    ),
+                    child: Text(
+                      'Comprar',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ] else
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.green[100],
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      'Obtido',
+                      style: TextStyle(
+                        color: Colors.green,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
