@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 
 class ChatService {
   final SupabaseClient _supabase = Supabase.instance.client;
+  RealtimeChannel? _currentChannel;
+  String? _currentConversationId;
 
   /// Obtém a lista de conversas do usuário atual
   Future<List<Map<String, dynamic>>> getConversations() async {
@@ -180,13 +182,22 @@ class ChatService {
     }
   }
 
-  /// Inicia listener realtime para novas mensagens
+  /// Inicia listener realtime para novas mensagens e typing indicators
   Stream<Map<String, dynamic>> subscribeToMessages(String conversationId) {
     final controller = StreamController<Map<String, dynamic>>();
 
-    final channel = _supabase.channel('chat_$conversationId');
+    // Se já existe um channel para outra conversa, limpa
+    if (_currentChannel != null && _currentConversationId != conversationId) {
+      _currentChannel?.unsubscribe();
+      _currentChannel = null;
+    }
 
-    channel.on(
+    // Cria o channel uma única vez
+    _currentChannel ??= _supabase.channel('chat_$conversationId');
+    _currentConversationId = conversationId;
+
+    // 👇 LISTENER DE MENSAGENS
+    _currentChannel!.on(
       RealtimeListenTypes.postgresChanges,
       ChannelFilter(
         event: 'INSERT',
@@ -195,19 +206,41 @@ class ChatService {
         filter: 'conversation_id=eq.$conversationId',
       ),
       (payload, [ref]) {
+        debugPrint('🔥 Nova mensagem realtime');
         controller.add(payload['new']);
       },
     );
 
-    channel.subscribe();
+    // 👇 LISTENER DE TYPING INDICATORS
+    _currentChannel!.on(
+      RealtimeListenTypes.broadcast,
+      ChannelFilter(event: 'typing'),
+      (payload, [ref]) {
+        final isTyping = payload['isTyping'] ?? false;
+        final userId = payload['userId'];
+
+        debugPrint('⌨️ $userId está digitando: $isTyping');
+        
+        // Envia dados do typing para o stream
+        controller.add({
+          'type': 'typing',
+          'isTyping': isTyping,
+          'userId': userId,
+        });
+      },
+    );
+
+    _currentChannel!.subscribe();
 
     return controller.stream;
   }
 
   /// Para o listener realtime
   void unsubscribeFromMessages() {
-    // Stream direto não precisa cleanup manual
-    debugPrint('🔥 Realtime stream finalizado');
+    _currentChannel?.unsubscribe();
+    _currentChannel = null;
+    _currentConversationId = null;
+    debugPrint('🔥 Realtime channel finalizado');
   }
 
   /// Obtém mensagens mais recentes que uma data específica
@@ -229,5 +262,25 @@ class ChatService {
     } catch (e) {
       throw Exception('Erro ao carregar mensagens recentes: $e');
     }
+  }
+
+  /// Envia indicador de digitação via broadcast
+  Future<void> sendTypingIndicator(String conversationId, bool isTyping) async {
+    // Usa o channel existente ou cria um novo
+    if (_currentChannel == null || _currentConversationId != conversationId) {
+      _currentChannel = _supabase.channel('chat_$conversationId');
+      _currentConversationId = conversationId;
+      _currentChannel!.subscribe();
+    }
+    
+    // Usa o MESMO channel para enviar
+    _currentChannel!.send(
+      type: RealtimeListenTypes.broadcast,
+      event: 'typing',
+      payload: {
+        'isTyping': isTyping,
+        'userId': _supabase.auth.currentUser?.id,
+      },
+    );
   }
 }

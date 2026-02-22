@@ -39,6 +39,10 @@ class _ChatPageState extends State<ChatPage> {
   String? _conversationId;
   DateTime? _oldestMessageTime;
   StreamSubscription<Map<String, dynamic>>? _messageSubscription;
+  
+  // Typing indicators
+  bool _isFriendTyping = false;
+  Timer? _typingTimer;
 
   @override
   void initState() {
@@ -60,6 +64,7 @@ class _ChatPageState extends State<ChatPage> {
     _messageController.dispose();
     _scrollController.dispose();
     _messageSubscription?.cancel();
+    _typingTimer?.cancel();
     _chatService.unsubscribeFromMessages();
     super.dispose();
   }
@@ -132,30 +137,52 @@ class _ChatPageState extends State<ChatPage> {
     _messageSubscription = _chatService
         .subscribeToMessages(_conversationId!)
         .listen(
-          (newMessage) {
+          (data) {
             if (!mounted) return;
             
-            debugPrint('🔥 Realtime: Nova mensagem recebida');
-            debugPrint('📝 ${newMessage['content']}');
-            
-            // Verifica se a mensagem já existe para evitar duplicatas
-            if (!_messages.any((msg) => msg['id'] == newMessage['id'])) {
-              setState(() {
-                _messages.add(newMessage);
-                // Ordena mensagens por data
-                _messages.sort((a, b) {
-                  final aTime = DateTime.tryParse(a['created_at'] ?? '') ?? DateTime.now();
-                  final bTime = DateTime.tryParse(b['created_at'] ?? '') ?? DateTime.now();
-                  return aTime.compareTo(bTime);
-                });
-              });
-              _scrollToBottom();
+            // Verifica se é typing indicator ou mensagem
+            if (data['type'] == 'typing') {
+              _handleTypingIndicator(data);
+            } else {
+              _handleNewMessage(data);
             }
           },
           onError: (error) {
             debugPrint('❌ Erro no realtime: $error');
           },
         );
+  }
+
+  void _handleTypingIndicator(Map<String, dynamic> data) {
+    final isTyping = data['isTyping'] ?? false;
+    final userId = data['userId'];
+    final currentUserId = _supabase.auth.currentUser?.id;
+    
+    // Só processa typing do outro usuário
+    if (userId != currentUserId && mounted) {
+      setState(() {
+        _isFriendTyping = isTyping;
+      });
+    }
+  }
+
+  void _handleNewMessage(Map<String, dynamic> newMessage) {
+    debugPrint('🔥 Realtime: Nova mensagem recebida');
+    debugPrint('📝 ${newMessage['content']}');
+    
+    // Verifica se a mensagem já existe para evitar duplicatas
+    if (!_messages.any((msg) => msg['id'] == newMessage['id'])) {
+      setState(() {
+        _messages.add(newMessage);
+        // Ordena mensagens por data
+        _messages.sort((a, b) {
+          final aTime = DateTime.tryParse(a['created_at'] ?? '') ?? DateTime.now();
+          final bTime = DateTime.tryParse(b['created_at'] ?? '') ?? DateTime.now();
+          return aTime.compareTo(bTime);
+        });
+      });
+      _scrollToBottom();
+    }
   }
 
   void _onScroll() {
@@ -171,6 +198,23 @@ class _ChatPageState extends State<ChatPage> {
     } catch (e) {
       debugPrint('❌ Erro ao marcar mensagens como lidas: $e');
     }
+  }
+
+  void _onTextChanged(String text) {
+    if (_conversationId == null) return;
+    
+    // Envia indicador de digitação
+    _chatService.sendTypingIndicator(_conversationId!, true);
+    
+    // Cancela timer anterior
+    _typingTimer?.cancel();
+    
+    // Configura timer para parar o indicador após 2 segundos
+    _typingTimer = Timer(const Duration(seconds: 2), () {
+      if (_conversationId != null) {
+        _chatService.sendTypingIndicator(_conversationId!, false);
+      }
+    });
   }
 
   Future<void> _sendMessage() async {
@@ -448,6 +492,39 @@ class _ChatPageState extends State<ChatPage> {
                         ),
             ),
 
+            // Indicador de digitação
+            if (_isFriendTyping)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  children: [
+                    AvatarWithFrame(
+                      imageUrl: widget.friendAvatarUrl,
+                      framePath: widget.friendSelectedFrame ?? 'assets/frame_none.png',
+                      size: 24,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${widget.friendDisplayName?.isNotEmpty == true ? widget.friendDisplayName! : widget.friendUsername} está digitando...',
+                      style: TextStyle(
+                        color: Colors.pink.shade600,
+                        fontSize: 14,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.pink.shade400,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
             // Campo de input
             Container(
               padding: const EdgeInsets.all(16),
@@ -495,6 +572,7 @@ class _ChatPageState extends State<ChatPage> {
                         maxLines: null,
                         textInputAction: TextInputAction.send,
                         onSubmitted: (_) => _sendMessage(),
+                        onChanged: _onTextChanged,
                         enabled: !_isSending,
                       ),
                     ),
