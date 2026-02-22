@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:k_photo/widgets/avatar_with_frame.dart';
 import 'package:k_photo/services/chat_service.dart';
 import 'package:intl/intl.dart';
+import 'dart:async';
 
 class ChatPage extends StatefulWidget {
   final String friendUserId;
@@ -33,37 +34,134 @@ class _ChatPageState extends State<ChatPage> {
   List<Map<String, dynamic>> _messages = [];
   bool _isLoading = true;
   bool _isSending = false;
+  bool _isLoadingMore = false;
+  bool _hasMoreMessages = true;
+  String? _conversationId;
+  DateTime? _oldestMessageTime;
+  StreamSubscription<Map<String, dynamic>>? _messageSubscription;
 
   @override
   void initState() {
     super.initState();
-    _loadMessages();
+    _initializeChat();
+    _scrollController.addListener(_onScroll);
+  }
+
+  Future<void> _initializeChat() async {
+    await _loadInitialMessages();
+    if (!mounted) return;
+
     _markMessagesAsRead();
+    _setupRealtimeListener();
   }
 
   @override
   void dispose() {
     _messageController.dispose();
     _scrollController.dispose();
+    _messageSubscription?.cancel();
+    _chatService.unsubscribeFromMessages();
     super.dispose();
   }
 
-  Future<void> _loadMessages() async {
+  Future<void> _loadInitialMessages() async {
     try {
-      final response = await _chatService.getMessages(widget.friendUserId);
+      // Obtém ou cria a conversa primeiro
+      _conversationId = await _chatService.getOrCreateConversation(widget.friendUserId);
+      debugPrint('🔗 Conversation ID: $_conversationId');
+      
+      final response = await _chatService.getRecentMessages(widget.friendUserId);
 
       if (mounted) {
         setState(() {
           _messages = response;
           _isLoading = false;
+          _hasMoreMessages = response.length >= 50;
+          if (response.isNotEmpty) {
+            _oldestMessageTime = DateTime.tryParse(response.first['created_at'] ?? '');
+          }
         });
         _scrollToBottom();
       }
     } catch (e) {
-      debugPrint('❌ Erro ao carregar mensagens: $e');
+      debugPrint('❌ Erro ao carregar mensagens iniciais: $e');
       if (mounted) {
         setState(() => _isLoading = false);
       }
+    }
+  }
+
+  Future<void> _loadMoreMessages() async {
+    if (_isLoadingMore || !_hasMoreMessages || _oldestMessageTime == null) return;
+
+    setState(() => _isLoadingMore = true);
+
+    try {
+      final olderMessages = await _chatService.getMessages(
+        widget.friendUserId,
+        limit: 30,
+        before: _oldestMessageTime,
+      );
+
+      if (mounted) {
+        setState(() {
+          if (olderMessages.isNotEmpty) {
+            _messages = [...olderMessages, ..._messages];
+            _oldestMessageTime = DateTime.tryParse(olderMessages.first['created_at'] ?? '');
+            _hasMoreMessages = olderMessages.length >= 30;
+          } else {
+            _hasMoreMessages = false;
+          }
+          _isLoadingMore = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Erro ao carregar mais mensagens: $e');
+      if (mounted) {
+        setState(() => _isLoadingMore = false);
+      }
+    }
+  }
+
+  void _setupRealtimeListener() {
+    if (_conversationId == null) {
+      debugPrint('❌ Conversation ID é nulo');
+      return;
+    }
+    
+    _messageSubscription = _chatService
+        .subscribeToMessages(_conversationId!)
+        .listen(
+          (newMessage) {
+            if (!mounted) return;
+            
+            debugPrint('🔥 Realtime: Nova mensagem recebida');
+            debugPrint('📝 ${newMessage['content']}');
+            
+            // Verifica se a mensagem já existe para evitar duplicatas
+            if (!_messages.any((msg) => msg['id'] == newMessage['id'])) {
+              setState(() {
+                _messages.add(newMessage);
+                // Ordena mensagens por data
+                _messages.sort((a, b) {
+                  final aTime = DateTime.tryParse(a['created_at'] ?? '') ?? DateTime.now();
+                  final bTime = DateTime.tryParse(b['created_at'] ?? '') ?? DateTime.now();
+                  return aTime.compareTo(bTime);
+                });
+              });
+              _scrollToBottom();
+            }
+          },
+          onError: (error) {
+            debugPrint('❌ Erro no realtime: $error');
+          },
+        );
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >= 
+        _scrollController.position.maxScrollExtent - 200) {
+      _loadMoreMessages();
     }
   }
 
@@ -82,14 +180,18 @@ class _ChatPageState extends State<ChatPage> {
     setState(() => _isSending = true);
 
     try {
-      final message = await _chatService.sendMessage(widget.friendUserId, messageText);
-
+      // Apenas envia para o banco - não adiciona localmente
+      await _chatService.sendMessage(
+        _conversationId!,
+        widget.friendUserId,
+        messageText,
+      );
+      
+      // Limpa o campo de input - a mensagem chegará via realtime
       if (mounted) {
         setState(() {
-          _messages.add(message);
           _messageController.clear();
         });
-        _scrollToBottom();
       }
     } catch (e) {
       debugPrint('❌ Erro ao enviar mensagem: $e');
@@ -229,9 +331,39 @@ class _ChatPageState extends State<ChatPage> {
                       : ListView.builder(
                           controller: _scrollController,
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          itemCount: _messages.length,
+                          itemCount: _messages.length + (_hasMoreMessages ? 1 : 0),
                           itemBuilder: (context, index) {
-                            final message = _messages[index];
+                            // Indicator de carregamento no topo
+                            if (index == 0 && _hasMoreMessages) {
+                              return Container(
+                                padding: const EdgeInsets.all(16),
+                                child: Center(
+                                  child: _isLoadingMore
+                                      ? SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Colors.pink.shade400,
+                                          ),
+                                        )
+                                      : Text(
+                                          'Puxe para carregar mais',
+                                          style: TextStyle(
+                                            color: Colors.pink.shade400,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                ),
+                              );
+                            }
+
+                            final messageIndex = _hasMoreMessages ? index - 1 : index;
+                            if (messageIndex < 0 || messageIndex >= _messages.length) {
+                              return const SizedBox.shrink();
+                            }
+
+                            final message = _messages[messageIndex];
                             final isMe = message['sender_id'] == currentUserId;
                             final createdAt = DateTime.tryParse(message['created_at'] ?? '') ?? DateTime.now();
 

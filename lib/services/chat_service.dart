@@ -1,4 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 
 class ChatService {
   final SupabaseClient _supabase = Supabase.instance.client;
@@ -26,8 +28,32 @@ class ChatService {
     }
   }
 
-  /// Obtém mensagens entre o usuário atual e outro usuário
-  Future<List<Map<String, dynamic>>> getMessages(String otherUserId) async {
+  /// Obtém mensagens entre o usuário atual e outro usuário com paginação
+  Future<List<Map<String, dynamic>>> getMessages(String otherUserId, {int limit = 50, DateTime? before}) async {
+    try {
+      final currentUserId = _supabase.auth.currentUser?.id;
+      if (currentUserId == null) throw Exception('Usuário não autenticado');
+
+      var query = _supabase
+          .from('messages')
+          .select('*')
+          .or('and(sender_id.eq.$currentUserId,receiver_id.eq.$otherUserId),and(sender_id.eq.$otherUserId,receiver_id.eq.$currentUserId)');
+
+      if (before != null) {
+        query = query.lt('created_at', before.toIso8601String());
+      }
+
+      final response = await query
+          .order('created_at', ascending: false)
+          .limit(limit);
+      return List<Map<String, dynamic>>.from(response.reversed);
+    } catch (e) {
+      throw Exception('Erro ao carregar mensagens: $e');
+    }
+  }
+
+  /// Obtém mensagens mais recentes (para carga inicial)
+  Future<List<Map<String, dynamic>>> getRecentMessages(String otherUserId, {int limit = 50}) async {
     try {
       final currentUserId = _supabase.auth.currentUser?.id;
       if (currentUserId == null) throw Exception('Usuário não autenticado');
@@ -36,68 +62,30 @@ class ChatService {
           .from('messages')
           .select('*')
           .or('and(sender_id.eq.$currentUserId,receiver_id.eq.$otherUserId),and(sender_id.eq.$otherUserId,receiver_id.eq.$currentUserId)')
-          .order('created_at', ascending: true);
+          .order('created_at', ascending: false)
+          .limit(limit);
 
-      return List<Map<String, dynamic>>.from(response);
+      return List<Map<String, dynamic>>.from(response.reversed);
     } catch (e) {
-      throw Exception('Erro ao carregar mensagens: $e');
+      throw Exception('Erro ao carregar mensagens recentes: $e');
     }
   }
 
   /// Envia uma mensagem para outro usuário
-  Future<Map<String, dynamic>> sendMessage(String receiverId, String content) async {
-    try {
-      final currentUserId = _supabase.auth.currentUser?.id;
-      if (currentUserId == null) throw Exception('Usuário não autenticado');
+  Future<void> sendMessage(
+    String conversationId,
+    String receiverId,
+    String content,
+  ) async {
+    final currentUserId = _supabase.auth.currentUser?.id;
+    if (currentUserId == null) throw Exception('Usuário não autenticado');
 
-      // Primeiro, verifica se já existe uma conversa entre os usuários
-      final existingConversation = await _getConversationBetweenUsers(currentUserId, receiverId);
-
-      String conversationId;
-      if (existingConversation != null) {
-        conversationId = existingConversation['id'];
-      } else {
-        // Cria nova conversa
-        final newConversation = await _supabase
-            .from('conversations')
-            .insert({
-              'user1_id': currentUserId,
-              'user2_id': receiverId,
-              'updated_at': DateTime.now().toIso8601String(),
-            })
-            .select()
-            .single();
-        conversationId = newConversation['id'];
-      }
-
-      // Envia a mensagem
-      final messageData = {
-        'conversation_id': conversationId,
-        'sender_id': currentUserId,
-        'receiver_id': receiverId,
-        'content': content,
-        'created_at': DateTime.now().toIso8601String(),
-      };
-
-      final message = await _supabase
-          .from('messages')
-          .insert(messageData)
-          .select()
-          .single();
-
-      // Atualiza a conversa com a última mensagem
-      await _supabase
-          .from('conversations')
-          .update({
-            'last_message_id': message['id'],
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', conversationId);
-
-      return message;
-    } catch (e) {
-      throw Exception('Erro ao enviar mensagem: $e');
-    }
+    await _supabase.from('messages').insert({
+      'conversation_id': conversationId,
+      'sender_id': currentUserId,
+      'receiver_id': receiverId,
+      'content': content,
+    });
   }
 
   /// Marca mensagens como lidas
@@ -189,6 +177,57 @@ class ChatService {
       }
     } catch (e) {
       throw Exception('Erro ao obter ou criar conversa: $e');
+    }
+  }
+
+  /// Inicia listener realtime para novas mensagens
+  Stream<Map<String, dynamic>> subscribeToMessages(String conversationId) {
+    final controller = StreamController<Map<String, dynamic>>();
+
+    final channel = _supabase.channel('chat_$conversationId');
+
+    channel.on(
+      RealtimeListenTypes.postgresChanges,
+      ChannelFilter(
+        event: 'INSERT',
+        schema: 'public',
+        table: 'messages',
+        filter: 'conversation_id=eq.$conversationId',
+      ),
+      (payload, [ref]) {
+        controller.add(payload['new']);
+      },
+    );
+
+    channel.subscribe();
+
+    return controller.stream;
+  }
+
+  /// Para o listener realtime
+  void unsubscribeFromMessages() {
+    // Stream direto não precisa cleanup manual
+    debugPrint('🔥 Realtime stream finalizado');
+  }
+
+  /// Obtém mensagens mais recentes que uma data específica
+  Future<List<Map<String, dynamic>>> getMessagesAfter(String otherUserId, DateTime after) async {
+    try {
+      final currentUserId = _supabase.auth.currentUser?.id;
+      if (currentUserId == null) throw Exception('Usuário não autenticado');
+
+      var query = _supabase
+          .from('messages')
+          .select('*')
+          .or('and(sender_id.eq.$currentUserId,receiver_id.eq.$otherUserId),and(sender_id.eq.$otherUserId,receiver_id.eq.$currentUserId)')
+          .gt('created_at', after.toIso8601String());
+
+      final response = await query
+          .order('created_at', ascending: true);
+
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      throw Exception('Erro ao carregar mensagens recentes: $e');
     }
   }
 }
